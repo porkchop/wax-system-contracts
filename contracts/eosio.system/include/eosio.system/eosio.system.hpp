@@ -335,7 +335,7 @@ namespace eosiosystem {
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( rewards_info, (owner)(status)(blocks_as_producer)(blocks_as_standby) )
+      EOSLIB_SERIALIZE( rewards_info, (owner)(status)(blocks_as_producer)(blocks_as_standby)(selection_counter) )
    };
 
 
