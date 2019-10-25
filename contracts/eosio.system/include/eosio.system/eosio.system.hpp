@@ -12,6 +12,7 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <type_traits>
 
 
@@ -63,6 +64,7 @@ namespace eosiosystem {
    static constexpr int64_t  inflation_pay_factor  = 5;                // 20% of the inflation
    static constexpr int64_t  votepay_factor        = 4;                // 25% of the producer pay
    static constexpr uint32_t refund_delay_sec      = 3 * seconds_per_day;
+   static constexpr uint32_t num_standbys          = 36;  
 
    static constexpr uint64_t useconds_in_gbm_period = 1096 * useconds_per_day;   // from July 1st 2019 to July 1st 2022
    static const time_point gbm_initial_time(eosio::seconds(1561939200));     // July 1st 2019 00:00:00
@@ -284,6 +286,60 @@ namespace eosiosystem {
    };
 
    /**
+    * TODO 
+    */
+   struct [[eosio::table, eosio::contract("eosio.system")]] rewards_info {
+      name      owner;     /// producer
+      uint32_t  status = 0;
+      uint64_t  blocks_as_producer = 0;
+      uint64_t  blocks_as_standby = 0;
+      uint64_t  selection_counter = 0;   // # of times the producer was selected to produce
+
+      enum class status_field: decltype(status) {
+         none = 0,
+         producer = 1,
+         standby = 2
+      };
+
+      // Table helpers
+
+      uint64_t primary_key() const { 
+         return owner.value; 
+      }
+
+      void set_status(status_field rhs) {
+         status = static_cast<std::underlying_type_t<status_field>>(rhs);
+      }
+
+      status_field get_status() const {
+         return static_cast<status_field>(status);
+      }
+
+      void add_new_block() {
+         switch (get_status()) {
+            case status_field::producer:
+               blocks_as_producer++;
+               break;
+
+            case status_field::standby:
+               blocks_as_standby++;
+               break;
+
+            default:
+               ;
+         }
+      }
+
+      void reset_counters() {
+         blocks_as_producer = blocks_as_standby = selection_counter = 0;
+      }
+
+      // explicit serialization macro is not necessary, used here only to improve compilation time
+      EOSLIB_SERIALIZE( rewards_info, (owner)(status)(blocks_as_producer)(blocks_as_standby) )
+   };
+
+
+   /**
     * Voters table
     *
     * @details The voters table stores all the `voter_info`s instances, all voters information.
@@ -303,13 +359,20 @@ namespace eosiosystem {
    typedef eosio::multi_index< "producers2"_n, producer_info2 > producers_table2;
 
    /**
+    * Keep produced blocks for rewards
+    */
+   typedef eosio::multi_index< "rewards"_n, rewards_info > rewards_table;
+
+   /**
     * Global state singleton added in version 1.0
     */
    typedef eosio::singleton< "global"_n, eosio_global_state >   global_state_singleton;
+   
    /**
     * Global state singleton added in version 1.1.0
     */
    typedef eosio::singleton< "global2"_n, eosio_global_state2 > global_state2_singleton;
+   
    /**
     * Global state singleton added in version 1.3
     */
@@ -402,6 +465,7 @@ namespace eosiosystem {
          voters_table            _voters;
          producers_table         _producers;
          producers_table2        _producers2;
+         rewards_table           _rewards;
          global_state_singleton  _global;
          global_state2_singleton _global2;
          global_state3_singleton _global3;
@@ -936,6 +1000,11 @@ namespace eosiosystem {
          void update_voter_votepay_share(const voters_table::const_iterator& voter_itr);
 
          // defined in voting.hpp
+         //using prod_vec_t = std::vector<std::pair<eosio::producer_key, uint16_t /* location */ >>;
+         using prod_vec_t = std::vector<std::tuple<eosio::producer_key, uint16_t /* location */, rewards_info::status_field>>;
+
+         void update_producer_reward_status(const prod_vec_t& top_producers);
+         void update_selection_counter(const prod_vec_t& top_producers);
          void update_elected_producers( const block_timestamp& timestamp, const eosio::checksum256& previous_block_hash);
          void update_votes( const name& voter, const name& proxy, const std::vector<name>& producers, bool voting );
          void propagate_weight_change( const voter_info& voter );
@@ -944,9 +1013,8 @@ namespace eosiosystem {
                                                double shares_rate, bool reset_to_zero = false );
          double update_total_votepay_share( const time_point& ct,
                                             double additional_shares_delta = 0.0, double shares_rate_delta = 0.0 );
-         
-         using prod_vec_t = std::vector<std::pair<eosio::producer_key, uint16_t /* location */ >>;
-         void select_producers_into( uint64_t begin, uint64_t count, prod_vec_t& result );
+
+         void select_producers_into( uint64_t begin, uint64_t count, rewards_info::status_field status, prod_vec_t& result );
 
          template <auto system_contract::*...Ptrs>
          class registration {
