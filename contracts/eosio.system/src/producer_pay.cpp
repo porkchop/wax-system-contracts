@@ -90,6 +90,8 @@ namespace eosiosystem {
          auto to_per_block_pay = to_voters;
          auto to_gbm           = to_voters;
          auto to_savings       = new_tokens - (to_voters + to_per_block_pay + to_gbm);
+         auto to_producers     = to_per_block_pay * 0.60;
+         auto to_standbys      = to_per_block_pay * 0.40;
 
          {
             token::issue_action issue_act{ token_account, { {get_self(), active_permission} } };
@@ -99,7 +101,8 @@ namespace eosiosystem {
             token::transfer_action transfer_act{ token_account, { {get_self(), active_permission} } };
             transfer_act.send( get_self(), saving_account, asset(to_savings, core_symbol()), "unallocated inflation" );
             transfer_act.send( get_self(), voters_account, asset(to_voters, core_symbol()), "fund voters bucket" );
-            transfer_act.send( get_self(), bpay_account, asset(to_per_block_pay, core_symbol()), "fund voters bucket" );
+            transfer_act.send( get_self(), bpay_account, asset(to_producers, core_symbol()), "fund voters bucket" );
+            transfer_act.send( get_self(), spay_account, asset(to_standbys, core_symbol()), "fund voters bucket" );
             transfer_act.send( get_self(), genesis_account, asset(to_gbm, core_symbol()), "fund voters bucket" );
          }
 
@@ -148,8 +151,24 @@ namespace eosiosystem {
 
       int64_t producer_per_block_pay = 0;
       if( _gstate.total_unpaid_blocks > 0 ) {
+         // Find reward information
+         auto reward = _rewards.get(owner.value); 
+
+         // selection_conter(s) is guaranteed that it is not zero
+         const auto expected_blocks_as_producer = reward.selection_counter * 12.0;
+         const auto expected_blocks_as_standby = reward.selection_counter * 12.0;
+
+         const auto blocks_as_producer_ratio = reward.blocks_as_producer / expected_blocks_as_standby;
+         const auto blocks_as_standby_ratio = reward.blocks_as_standby / expected_blocks_as_standby;
+
+         /// @todo Implement calculation for total payment
+         
          producer_per_block_pay = (static_cast<double>(_gstate.perblock_bucket) * prod.unpaid_blocks) / _gstate.total_unpaid_blocks;
          check( producer_per_block_pay >= 0, "producer per block pay must be greater or equal to 0" );
+
+         _rewards.modify( reward, same_payer, [&](auto& rec) {
+            rec.reset_counters();
+         });
       }
 
       double new_votepay_share = update_producer_votepay_share( prod2,
@@ -167,20 +186,6 @@ namespace eosiosystem {
          p.last_claim_time = ct;
          p.unpaid_blocks   = 0;
       });
-
-      //////////////////////////////////////////////////
-      // Producer/Standby rewards
-
-      if (auto reward = _rewards.find(owner.value); reward != _rewards.end()) {
-         /// @todo
-
-         _rewards.modify( reward, same_payer, [&](auto& rec) {
-            rec.reset_counters();
-         });
-      }
-
-      // End standby rewars
-      //////////////////////////////////////////////////
 
       if( producer_per_block_pay > 0 ) {
          if(as_gbm){

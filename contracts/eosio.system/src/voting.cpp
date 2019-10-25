@@ -61,6 +61,9 @@ namespace eosiosystem {
             update_total_votepay_share( ct, 0.0, prod->total_votes );
             // When introducing the producer2 table row for the first time, the producer's votes must also be accounted for in the global total_producer_votepay_share at the same time.
          }
+
+         /// @todo If producer exists, what shall we do with its reward_info table?
+
       } else {
          _producers.emplace( producer, [&]( producer_info& info ){
             info.owner           = producer;

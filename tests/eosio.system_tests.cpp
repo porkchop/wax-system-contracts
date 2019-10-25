@@ -2574,6 +2574,9 @@ BOOST_FIXTURE_TEST_CASE(multiple_producer_pay, eosio_system_tester, * boost::uni
       const uint32_t initial_tot_unpaid_blocks = initial_global_state["total_unpaid_blocks"].as<uint32_t>();
       const asset    initial_supply            = get_token_supply();
       const asset    initial_bpay_balance      = get_balance(N(eosio.bpay));
+
+      /// @todo Check if we have to add "initial_spay_balance"
+
       const asset    initial_balance           = get_balance(prod_name);
       const uint32_t initial_unpaid_blocks     = get_producer_info(prod_name)["unpaid_blocks"].as<uint32_t>();
 
@@ -2587,6 +2590,9 @@ BOOST_FIXTURE_TEST_CASE(multiple_producer_pay, eosio_system_tester, * boost::uni
       const uint32_t tot_unpaid_blocks = global_state["total_unpaid_blocks"].as<uint32_t>();
       const asset    supply            = get_token_supply();
       const asset    bpay_balance      = get_balance(N(eosio.bpay));
+
+      /// @todo Check if we have to add "spay_balance" and so on for the rest of the file where eosio.bpay appears (-> eosio.spay)
+
       const asset    balance           = get_balance(prod_name);
       const uint32_t unpaid_blocks     = get_producer_info(prod_name)["unpaid_blocks"].as<uint32_t>();
 
