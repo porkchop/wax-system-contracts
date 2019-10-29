@@ -1059,7 +1059,6 @@ namespace eosiosystem {
          void update_voter_votepay_share(const voters_table::const_iterator& voter_itr);
 
          // defined in voting.hpp
-         //using prod_vec_t = std::vector<std::pair<eosio::producer_key, uint16_t /* location */ >>;
          using prod_vec_t = std::vector<std::tuple<eosio::producer_key, uint16_t /* location */, rewards_info::status_field>>;
 
          void update_producer_reward_status(const prod_vec_t& top_producers);
