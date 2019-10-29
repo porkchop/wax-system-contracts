@@ -65,6 +65,8 @@ namespace eosiosystem {
    static constexpr int64_t  votepay_factor        = 4;                // 25% of the producer pay
    static constexpr uint32_t refund_delay_sec      = 3 * seconds_per_day;
    static constexpr uint32_t num_standbys          = 36;  
+   static constexpr double   producer_perc_reward  = 0.60;
+   static constexpr double   standby_perc_reward   = 1 - producer_perc_reward;
 
    static constexpr uint64_t useconds_in_gbm_period = 1096 * useconds_per_day;   // from July 1st 2019 to July 1st 2022
    static const time_point gbm_initial_time(eosio::seconds(1561939200));     // July 1st 2019 00:00:00
@@ -197,6 +199,20 @@ namespace eosiosystem {
    };
 
    /**
+    * Global counters for producer/standby rewards
+    */
+   struct [[eosio::table("glbrewards"), eosio::contract("eosio.system")]] eosio_global_rewards {
+      eosio_global_rewards() { }
+
+      bool     activated = false;  // Producer/standby rewards activated 
+
+      uint64_t total_unpaid_producer_blocks = 0;
+      uint64_t total_unpaid_standby_blocks = 0;
+      
+      EOSLIB_SERIALIZE( eosio_global_rewards, (total_unpaid_producer_blocks)(total_unpaid_standby_blocks) )
+   };
+
+   /**
     * Defines `producer_info` structure to be stored in `producer_info` table, added after version 1.0
     */
    struct [[eosio::table, eosio::contract("eosio.system")]] producer_info {
@@ -205,7 +221,7 @@ namespace eosiosystem {
       eosio::public_key     producer_key; /// a packed public key object
       bool                  is_active = true;
       std::string           url;
-      uint32_t              unpaid_blocks = 0;
+      uint32_t              unpaid_blocks = 0;  /// @todo Possibly deprecated in future version due to standby rewards, see voter_info table
       time_point            last_claim_time;
       uint16_t              location = 0;
 
@@ -286,14 +302,17 @@ namespace eosiosystem {
    };
 
    /**
-    * TODO 
+    * Producer reward information  
     */
    struct [[eosio::table, eosio::contract("eosio.system")]] rewards_info {
-      name      owner;     /// producer
-      uint32_t  status = 0;
-      uint64_t  blocks_as_producer = 0;
-      uint64_t  blocks_as_standby = 0;
-      uint64_t  selection_counter = 0;   // # of times the producer was selected to produce
+      struct counter_type {
+         uint64_t unpaid_blocks = 0; // # of blocks produced
+         uint64_t selection = 0;     // # of times a 'producer' was selected to produce
+      };
+
+      name                             owner;     /// producer
+      uint32_t                         status = 0;
+      std::map<uint32_t, counter_type> counters;
 
       enum class status_field: decltype(status) {
          none = 0,
@@ -301,41 +320,63 @@ namespace eosiosystem {
          standby = 2
       };
 
-      // Table helpers
+      // Table helpers / accessors
 
-      uint64_t primary_key() const { 
+      static auto to_int(status_field value) {
+         return static_cast<std::underlying_type_t<status_field>>(value);
+      }
+
+      auto primary_key() const { 
          return owner.value; 
       }
 
-      void set_status(status_field rhs) {
-         status = static_cast<std::underlying_type_t<status_field>>(rhs);
+      void init(const name& own) {
+         owner = own;
+         status = to_int(status_field::none);
+         counters.try_emplace(to_int(status_field::producer), counter_type());
+         counters.try_emplace(to_int(status_field::standby), counter_type());
       }
 
-      status_field get_status() const {
+      void set_status(status_field rhs) {
+         status = to_int(rhs);
+      }
+
+      auto get_status() const {
          return static_cast<status_field>(status);
       }
 
-      void add_new_block() {
-         switch (get_status()) {
-            case status_field::producer:
-               blocks_as_producer++;
-               break;
+      void select(status_field prod_status) {
+         set_status(prod_status);
 
-            case status_field::standby:
-               blocks_as_standby++;
-               break;
-
-            default:
-               ;
+         if (auto it = counters.find(status); it != counters.end()) {
+            it->second.selection++;
          }
       }
 
+      void new_unpaid_block() {
+         if (auto it = counters.find(status); it != counters.end())
+            it->second.unpaid_blocks++;
+      }
+
       void reset_counters() {
-         blocks_as_producer = blocks_as_standby = selection_counter = 0;
+         for (auto& counter: counters) {
+            counter.second.unpaid_blocks = 0;
+            counter.second.selection = 0;
+         }
+      }
+
+      const auto& get_counters(status_field counter_type) const {
+         auto it = counters.find(to_int(counter_type)); 
+         check(it != counters.end(), "Invalid counter data"); /// @todo Should I return zeroed counters?
+         return it->second;
+      }
+
+      const auto& get_counters() const {
+         return get_counters(get_status()); 
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( rewards_info, (owner)(status)(blocks_as_producer)(blocks_as_standby)(selection_counter) )
+      EOSLIB_SERIALIZE( rewards_info, (owner)(status)(counters) )
    };
 
 
@@ -359,7 +400,7 @@ namespace eosiosystem {
    typedef eosio::multi_index< "producers2"_n, producer_info2 > producers_table2;
 
    /**
-    * Keep produced blocks for rewards
+    * Keeps produced blocks for rewards
     */
    typedef eosio::multi_index< "rewards"_n, rewards_info > rewards_table;
 
@@ -377,6 +418,11 @@ namespace eosiosystem {
     * Global state singleton added in version 1.3
     */
    typedef eosio::singleton< "global3"_n, eosio_global_state3 > global_state3_singleton;
+
+   /**
+    * Global rewards singleton
+    */
+   typedef eosio::singleton< "glbrewards"_n, eosio_global_rewards > global_rewards_singleton;
 
    struct [[eosio::table, eosio::contract("eosio.system")]] user_resources {
       name          owner;
@@ -462,16 +508,18 @@ namespace eosiosystem {
    class [[eosio::contract("eosio.system")]] system_contract : public native {
 
       private:
-         voters_table            _voters;
-         producers_table         _producers;
-         producers_table2        _producers2;
-         rewards_table           _rewards;
-         global_state_singleton  _global;
-         global_state2_singleton _global2;
-         global_state3_singleton _global3;
-         eosio_global_state      _gstate;
-         eosio_global_state2     _gstate2;
-         eosio_global_state3     _gstate3;
+         voters_table             _voters;
+         producers_table          _producers;
+         producers_table2         _producers2;
+         rewards_table            _rewards;
+         global_state_singleton   _global;
+         global_state2_singleton  _global2;
+         global_state3_singleton  _global3;
+         global_rewards_singleton _globalrewards;
+         eosio_global_state       _gstate;
+         eosio_global_state2      _gstate2;
+         eosio_global_state3      _gstate3;
+         eosio_global_rewards     _grewards;
          rammarket               _rammarket;
 
       public:
@@ -601,6 +649,15 @@ namespace eosiosystem {
           */
          [[eosio::action]]
          void activate( const eosio::checksum256& feature_digest );
+
+         /**
+          * Activates producer/standby rewards
+          *
+          * @details 
+          *   
+          */
+         [[eosio::action]]
+         void activaterewd();
 
          // functions defined in delegate_bandwidth.cpp
 
@@ -943,6 +1000,7 @@ namespace eosiosystem {
          using setacctnet_action = eosio::action_wrapper<"setacctnet"_n, &system_contract::setacctnet>;
          using setacctcpu_action = eosio::action_wrapper<"setacctcpu"_n, &system_contract::setacctcpu>;
          using activate_action = eosio::action_wrapper<"activate"_n, &system_contract::activate>;
+         using activaterewd_action = eosio::action_wrapper<"activaterewd"_n, &system_contract::activaterewd>;
          using delegatebw_action = eosio::action_wrapper<"delegatebw"_n, &system_contract::delegatebw>;
          using awardgenesis_action = eosio::action_wrapper<"awardgenesis"_n, &system_contract::awardgenesis>;
          using delgenesis_action = eosio::action_wrapper<"delgenesis"_n, &system_contract::delgenesis>;
@@ -1005,7 +1063,6 @@ namespace eosiosystem {
          using prod_vec_t = std::vector<std::tuple<eosio::producer_key, uint16_t /* location */, rewards_info::status_field>>;
 
          void update_producer_reward_status(const prod_vec_t& top_producers);
-         void update_selection_counter(const prod_vec_t& top_producers);
          void update_elected_producers( const block_timestamp& timestamp, const eosio::checksum256& previous_block_hash);
          void update_votes( const name& voter, const name& proxy, const std::vector<name>& producers, bool voting );
          void propagate_weight_change( const voter_info& voter );

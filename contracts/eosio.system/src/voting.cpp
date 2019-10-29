@@ -62,8 +62,6 @@ namespace eosiosystem {
             // When introducing the producer2 table row for the first time, the producer's votes must also be accounted for in the global total_producer_votepay_share at the same time.
          }
 
-         /// @todo If producer exists, what shall we do with its reward_info table?
-
       } else {
          _producers.emplace( producer, [&]( producer_info& info ){
             info.owner           = producer;
@@ -80,19 +78,18 @@ namespace eosiosystem {
             info.last_votepay_share_update = ct;
          });
 
-         _rewards.emplace( producer, [&]( rewards_info& info ){
-            info.owner = producer;
-            info.reset_counters();
+         if (_grewards.activated) {
+            _rewards.emplace( producer, [&]( rewards_info& info ){
+               info.init(producer);
 
-            // If we only have 21 producers or less they are ready to produce, otherwise
-            // they will have to wait to be selected 
-            if (std::distance(_producers.cbegin(), _producers.cend()) < 21) {
-               info.set_status(rewards_info::status_field::producer);
-               info.selection_counter++;
-            }
-            else
-               info.set_status(rewards_info::status_field::none);
-         });
+               // If we only have 21 producers or less they are ready to produce, otherwise
+               // they will have to wait to be selected 
+               if (std::distance(_producers.cbegin(), _producers.cend()) < 21) 
+                  info.select(rewards_info::status_field::producer);
+               else
+                  info.set_status(rewards_info::status_field::none);
+            });
+         }
       }
 
    }
@@ -106,12 +103,15 @@ namespace eosiosystem {
       });
    }
 
+   /**
+    * Updates the reward status of all producers (including those that are not top producers)
+    */
    void system_contract::update_producer_reward_status(const prod_vec_t& top_producers) {
       auto idx = _producers.get_index<"prototalvote"_n>();
       uint64_t i = 0;
 
       for (auto it = idx.cbegin(); it != idx.cend() && it->active(); ++it, ++i) {
-         // Look for the status in the top producer
+         // Look for the status in the top producer list
          auto prod_it = std::lower_bound(
             top_producers.begin(), 
             top_producers.end(), 
@@ -126,11 +126,8 @@ namespace eosiosystem {
             if (auto reward = _rewards.find(prod_key.producer_name.value); reward != _rewards.end()) {
                // status = status => workaround for a limitation of capturing structured bindings
                _rewards.modify( reward, same_payer, [status = status](auto& rec) { 
-                  rec.set_status(status);
+                  rec.select(status);
                });
-            }
-            else {
-               // Ups 1 of the 21 selected producers has no reward information
             }
          }
          else {
@@ -139,23 +136,14 @@ namespace eosiosystem {
                   rec.set_status(rewards_info::status_field::none);
                });
             }
-            else {
-               // The current loop producer has no reward information
-            }
          }
       } 
    }
 
-   void system_contract::update_selection_counter(const prod_vec_t& top_producers) {
-      for (auto& p: top_producers) {
-         if (auto reward = _rewards.find(std::get<0>(p).producer_name.value); reward != _rewards.end()) {
-            _rewards.modify( reward, same_payer, [&](auto& rec) {
-               rec.selection_counter++;
-            });
-         }
-      } 
-   }
-
+   /**
+    * Selects the specified producer range into the result vector. It also adds the
+    * provided status to that vector. 
+    */
    void system_contract::select_producers_into( uint64_t begin, 
                                                 uint64_t count,
                                                 rewards_info::status_field status, 
