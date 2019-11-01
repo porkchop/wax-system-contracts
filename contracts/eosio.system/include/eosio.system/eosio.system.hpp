@@ -51,6 +51,11 @@ namespace eosiosystem {
          return ( flags & ~static_cast<F>(field) );
    }
 
+   template<typename EnumType, typename IntType = std::underlying_type_t<EnumType>>
+   IntType enum_cast(EnumType value) {
+      return static_cast<IntType>(value);
+   }
+
    static constexpr uint32_t seconds_per_year      = 52 * 7 * 24 * 3600;
    static constexpr uint32_t seconds_per_day       = 24 * 3600;
    static constexpr int64_t  useconds_per_year     = int64_t(seconds_per_year) * 1000'000ll;
@@ -86,6 +91,18 @@ namespace eosiosystem {
     *    and users to rent CPU and Network resources in return for a market-determined fee.
     * @{
     */
+
+   /**
+    * Type of rewards
+    * 
+    * @details Defines types of rewards for all producers and also the current 
+    *          reward status. 
+    */
+   enum class reward_type: uint32_t {
+      none = 0,
+      producer = 1,
+      standby = 2
+   };
 
    /**
     * A name bid.
@@ -202,14 +219,32 @@ namespace eosiosystem {
     * Global counters for producer/standby rewards
     */
    struct [[eosio::table("glbrewards"), eosio::contract("eosio.system")]] eosio_global_rewards {
-      eosio_global_rewards() { }
+      struct counter_type {
+         uint64_t total_unpaid_blocks = 0;
+         // other counters here
+      };
 
-      bool     activated = false;  // Producer/standby rewards activated 
+      bool activated = false;  // Producer/standby rewards activated 
+      std::map<uint32_t /*reward_type*/, counter_type> counters;
 
-      uint64_t total_unpaid_producer_blocks = 0;
-      uint64_t total_unpaid_standby_blocks = 0;
+      eosio_global_rewards() { 
+         counters.emplace(enum_cast(reward_type::producer), counter_type());
+         counters.emplace(enum_cast(reward_type::standby), counter_type());
+      }
+
+      void new_total_unpaid_block(reward_type type) {
+         auto it = counters.find(enum_cast(type));
+         check(it != counters.end(), "Invalid reward type");
+         it->second.total_unpaid_blocks++;
+      }
+
+      auto get_total_unpaid_blocks(reward_type type) {
+         auto it = counters.find(enum_cast(type));
+         check(it != counters.end(), "Invalid reward type");
+         return it->second.total_unpaid_blocks;
+      }
       
-      EOSLIB_SERIALIZE( eosio_global_rewards, (activated)(total_unpaid_producer_blocks)(total_unpaid_standby_blocks) )
+      EOSLIB_SERIALIZE( eosio_global_rewards, (activated)(counters) )
    };
 
    /**
@@ -310,21 +345,11 @@ namespace eosiosystem {
          uint64_t selection = 0;     // # of times a 'producer' was selected to produce
       };
 
-      name                             owner;     /// producer
-      uint32_t                         status = 0;
-      std::map<uint32_t, counter_type> counters;
-
-      enum class status_field: decltype(status) {
-         none = 0,
-         producer = 1,
-         standby = 2
-      };
+      name                               owner;           /// producer
+      uint32_t                           current_type = 0;
+      std::map<uint32_t /*reward_type*/, counter_type> counters;
 
       // Table helpers / accessors
-
-      static auto to_int(status_field value) {
-         return static_cast<std::underlying_type_t<status_field>>(value);
-      }
 
       auto primary_key() const { 
          return owner.value; 
@@ -332,28 +357,28 @@ namespace eosiosystem {
 
       void init(const name& owner) {
          this->owner = owner;
-         status = to_int(status_field::none);
-         counters.try_emplace(to_int(status_field::producer), counter_type());
-         counters.try_emplace(to_int(status_field::standby), counter_type());
+         current_type = enum_cast(reward_type::none);
+         counters.try_emplace(enum_cast(reward_type::producer), counter_type());
+         counters.try_emplace(enum_cast(reward_type::standby), counter_type());
       }
 
-      void set_status(status_field rhs) {
-         status = to_int(rhs);
+      void set_current_type(reward_type rhs) {
+         current_type = enum_cast(rhs);
       }
 
-      auto get_status() const {
-         return static_cast<status_field>(status);
+      auto get_current_type() const {
+         return static_cast<reward_type>(current_type);
       }
 
-      void select(status_field prod_status) {
-         set_status(prod_status);
+      void select(reward_type type) {
+         set_current_type(type);
 
-         if (auto it = counters.find(status); it != counters.end())
+         if (auto it = counters.find(current_type); it != counters.end())
             it->second.selection++;
       }
 
       void new_unpaid_block() {
-         if (auto it = counters.find(status); it != counters.end())
+         if (auto it = counters.find(current_type); it != counters.end())
             it->second.unpaid_blocks++;
       }
 
@@ -364,14 +389,14 @@ namespace eosiosystem {
          }
       }
 
-      const auto& get_counters(status_field counter_type) const {
-         auto it = counters.find(to_int(counter_type)); 
+      const auto& get_counters(reward_type type) const {
+         auto it = counters.find(enum_cast(type)); 
          check(it != counters.end(), "Invalid counter data"); 
          return it->second;
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( rewards_info, (owner)(status)(counters) )
+      EOSLIB_SERIALIZE( rewards_info, (owner)(current_type)(counters) )
    };
 
 
@@ -1054,7 +1079,7 @@ namespace eosiosystem {
          void update_voter_votepay_share(const voters_table::const_iterator& voter_itr);
 
          // defined in voting.hpp
-         using prod_vec_t = std::vector<std::tuple<eosio::producer_key, uint16_t /* location */, rewards_info::status_field>>;
+         using prod_vec_t = std::vector<std::tuple<eosio::producer_key, uint16_t /* location */, reward_type>>;
 
          void update_producer_reward_status(const prod_vec_t& top_producers);
          void update_elected_producers( const block_timestamp& timestamp, const eosio::checksum256& previous_block_hash);
@@ -1066,7 +1091,7 @@ namespace eosiosystem {
          double update_total_votepay_share( const time_point& ct,
                                             double additional_shares_delta = 0.0, double shares_rate_delta = 0.0 );
 
-         void select_producers_into( uint64_t begin, uint64_t count, rewards_info::status_field status, prod_vec_t& result );
+         void select_producers_into( uint64_t begin, uint64_t count, reward_type type, prod_vec_t& result );
 
          template <auto system_contract::*...Ptrs>
          class registration {

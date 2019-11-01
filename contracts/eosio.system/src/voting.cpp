@@ -84,8 +84,9 @@ namespace eosiosystem {
 
                // If we only have 21 producers or less they are ready to produce, otherwise
                // they will have to wait to be selected 
+               /// @todo It's necessary to check for "active" producers.
                if (std::distance(_producers.cbegin(), _producers.cend()) < 21) 
-                  info.select(rewards_info::status_field::producer);
+                  info.select(reward_type::producer);
             });
          }
       }
@@ -119,19 +120,19 @@ namespace eosiosystem {
             });
 
          if (prod_it != top_producers.end()) {
-            const auto& [ prod_key, _, status ] = *prod_it;
+            const auto& [ prod_key, _, type ] = *prod_it;
             
-            if (auto reward = _rewards.find(prod_key.producer_name.value); reward != _rewards.end()) {
-               // status = status => workaround for a limitation of capturing structured bindings
-               _rewards.modify( reward, same_payer, [status = status](auto& rec) { 
-                  rec.select(status);
+            if (auto reward_it = _rewards.find(prod_key.producer_name.value); reward_it != _rewards.end()) {
+               // type = type => workaround for a limitation of capturing structured bindings
+               _rewards.modify(reward_it, same_payer, [type = type](auto& rec) { 
+                  rec.select(type);
                });
             }
          }
          else {
-            if (auto reward = _rewards.find(it->owner.value); reward != _rewards.end()) {
-               _rewards.modify( reward, same_payer, [&](auto& rec) {
-                  rec.set_status(rewards_info::status_field::none);
+            if (auto reward_it = _rewards.find(it->owner.value); reward_it != _rewards.end()) {
+               _rewards.modify(reward_it, same_payer, [&](auto& rec) {
+                  rec.set_current_type(reward_type::none);
                });
             }
          }
@@ -144,7 +145,7 @@ namespace eosiosystem {
     */
    void system_contract::select_producers_into( uint64_t begin, 
                                                 uint64_t count,
-                                                rewards_info::status_field status, 
+                                                reward_type type, 
                                                 prod_vec_t& result ) {
       auto idx = _producers.get_index<"prototalvote"_n>();
       uint64_t i = 0;
@@ -155,7 +156,7 @@ namespace eosiosystem {
       {
          if (i >= begin)
             result.emplace_back(
-               prod_vec_t::value_type{{it->owner, it->producer_key}, it->location, status});
+               prod_vec_t::value_type{{it->owner, it->producer_key}, it->location, type});
       }
    }
 
@@ -176,7 +177,7 @@ namespace eosiosystem {
       if (standby_index < num_standbys) {
          prod_vec_t standbys;
          standbys.reserve(num_standbys);
-         select_producers_into(21, num_standbys, rewards_info::status_field::standby, standbys);
+         select_producers_into(21, num_standbys, reward_type::standby, standbys);
 
          if (standbys.size() > standby_index) {
             top_producers.emplace_back(standbys[standby_index]);
@@ -186,7 +187,7 @@ namespace eosiosystem {
          }
       }
 
-      select_producers_into(0, 21 - top_producers.size(), rewards_info::status_field::producer, top_producers);
+      select_producers_into(0, 21 - top_producers.size(), reward_type::producer, top_producers);
 
       if (top_producers.size() == 0 || top_producers.size() < _gstate.last_producer_schedule_size ) {
          return;

@@ -377,18 +377,31 @@ namespace eosiosystem {
          }
       }
 
-      // Mark the first 21 as "selected" to produce
-      auto idx = _producers.get_index<"prototalvote"_n>();
-      uint64_t i = 0;
+      // If we only have 21 producers or less they are ready to produce
+      /// @todo It's necessary to check for "active" producers.
+      if (std::distance(_producers.cbegin(), _producers.cend()) < 21) {
+         for (const auto& producer: _producers) {
+            if (auto it = _rewards.find(producer.owner.value); it == _rewards.end()) {
+               _rewards.emplace(producer.owner, [&](rewards_info& info) {
+                  info.select(reward_type::producer);
+               });
+            }
+         }
+      }
+      else {
+         // Mark the first 21 ready (with votes and active) as "selected" to produce
+         auto idx = _producers.get_index<"prototalvote"_n>();
+         uint64_t i = 0;
 
-      for (auto it = idx.cbegin(); 
-            it != idx.cend() && i < 21 && 0 < it->total_votes && it->active(); 
-            ++it, ++i) 
-      {
-         if (auto it_rwd = _rewards.find(it->owner.value); it_rwd != _rewards.end()) {
-            _rewards.modify(it_rwd, same_payer, [&](rewards_info& info) {
-               info.select(rewards_info::status_field::producer);
-            });
+         for (auto it = idx.cbegin(); 
+               it != idx.cend() && i < 21 && 0 < it->total_votes && it->active(); 
+               ++it, ++i) 
+         {
+            if (auto it_rwd = _rewards.find(it->owner.value); it_rwd != _rewards.end()) {
+               _rewards.modify(it_rwd, same_payer, [&](rewards_info& info) {
+                  info.select(reward_type::producer);
+               });
+            }
          }
       }
 
