@@ -86,8 +86,6 @@ namespace eosiosystem {
                // they will have to wait to be selected 
                if (std::distance(_producers.cbegin(), _producers.cend()) < 21) 
                   info.select(rewards_info::status_field::producer);
-               else
-                  info.set_status(rewards_info::status_field::none);
             });
          }
       }

@@ -209,7 +209,7 @@ namespace eosiosystem {
       uint64_t total_unpaid_producer_blocks = 0;
       uint64_t total_unpaid_standby_blocks = 0;
       
-      EOSLIB_SERIALIZE( eosio_global_rewards, (total_unpaid_producer_blocks)(total_unpaid_standby_blocks) )
+      EOSLIB_SERIALIZE( eosio_global_rewards, (activated)(total_unpaid_producer_blocks)(total_unpaid_standby_blocks) )
    };
 
    /**
@@ -330,8 +330,8 @@ namespace eosiosystem {
          return owner.value; 
       }
 
-      void init(const name& own) {
-         owner = own;
+      void init(const name& owner) {
+         this->owner = owner;
          status = to_int(status_field::none);
          counters.try_emplace(to_int(status_field::producer), counter_type());
          counters.try_emplace(to_int(status_field::standby), counter_type());
@@ -348,9 +348,8 @@ namespace eosiosystem {
       void select(status_field prod_status) {
          set_status(prod_status);
 
-         if (auto it = counters.find(status); it != counters.end()) {
+         if (auto it = counters.find(status); it != counters.end())
             it->second.selection++;
-         }
       }
 
       void new_unpaid_block() {
@@ -367,12 +366,8 @@ namespace eosiosystem {
 
       const auto& get_counters(status_field counter_type) const {
          auto it = counters.find(to_int(counter_type)); 
-         check(it != counters.end(), "Invalid counter data"); /// @todo Should I return zeroed counters?
+         check(it != counters.end(), "Invalid counter data"); 
          return it->second;
-      }
-
-      const auto& get_counters() const {
-         return get_counters(get_status()); 
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time

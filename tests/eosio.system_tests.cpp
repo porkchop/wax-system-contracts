@@ -2574,9 +2574,6 @@ BOOST_FIXTURE_TEST_CASE(multiple_producer_pay, eosio_system_tester, * boost::uni
       const uint32_t initial_tot_unpaid_blocks = initial_global_state["total_unpaid_blocks"].as<uint32_t>();
       const asset    initial_supply            = get_token_supply();
       const asset    initial_bpay_balance      = get_balance(N(eosio.bpay));
-
-      /// @todo Check if we have to add "initial_spay_balance"
-
       const asset    initial_balance           = get_balance(prod_name);
       const uint32_t initial_unpaid_blocks     = get_producer_info(prod_name)["unpaid_blocks"].as<uint32_t>();
 
@@ -2590,9 +2587,6 @@ BOOST_FIXTURE_TEST_CASE(multiple_producer_pay, eosio_system_tester, * boost::uni
       const uint32_t tot_unpaid_blocks = global_state["total_unpaid_blocks"].as<uint32_t>();
       const asset    supply            = get_token_supply();
       const asset    bpay_balance      = get_balance(N(eosio.bpay));
-
-      /// @todo Check if we have to add "spay_balance" and so on for the rest of the file where eosio.bpay appears (-> eosio.spay)
-
       const asset    balance           = get_balance(prod_name);
       const uint32_t unpaid_blocks     = get_producer_info(prod_name)["unpaid_blocks"].as<uint32_t>();
 
@@ -5838,5 +5832,100 @@ BOOST_FIXTURE_TEST_CASE( genesis_plus_delegate_extra_bw_to_someone_else, eosio_s
    BOOST_REQUIRE( locked_4_net + locked_4_cpu + half_locked_4_net - core_sym::from_string("0.0001") <= get_balance(N(user11111111)));
 
 } FC_LOG_AND_RETHROW()
+
+
+BOOST_FIXTURE_TEST_CASE( activate_producer_standby_rewards_no_reg_producers, eosio_system_tester ) try {
+   // Not activated
+   BOOST_REQUIRE(!get_global_rewards()["activated"].as_bool());
+
+   // Activate
+   activaterewd();
+   BOOST_REQUIRE(get_global_rewards()["activated"].as_bool());
+   produce_block();
+
+   /// @todo Uncomment when figure it out why the "check" inside "activaterewd"
+   ///       do not work anymore after a 2nd call :-O
+
+   // Already activated
+   // BOOST_REQUIRE_THROW(
+   //    activaterewd(),
+   //    eosio_assert_message_exception);
+
+} FC_LOG_AND_RETHROW()
+
+
+BOOST_FIXTURE_TEST_CASE( activate_producer_standby_rewards_with_fresh_producers, eosio_system_tester ) try {
+   // create accounts {defproducera, defproducerb, ..., defproducerz} and register as producers
+   std::vector<account_name> producer_names;
+   producer_names.reserve(26);
+   
+   // Active producers
+   const std::string root("defproducer");
+   for ( char c = 'a'; c <= 'z'; ++c ) {
+      producer_names.emplace_back(root + std::string(1, c));
+   }
+
+   setup_producer_accounts(producer_names);
+
+   for (auto a:producer_names)
+      regproducer(a);
+
+   produce_block(fc::hours(24));
+
+   // Simple check with 1st and last producers to verify that reward_information don't exist
+   BOOST_REQUIRE_THROW(get_reward_info(producer_names.front()), unpack_exception);
+   BOOST_REQUIRE_THROW(get_reward_info(producer_names.back()), unpack_exception);
+
+   activaterewd();
+
+   BOOST_REQUIRE_EQUAL(0, get_reward_info(producer_names.front())["status"].as<int>());
+   BOOST_REQUIRE_EQUAL(0, get_reward_info(producer_names.back())["status"].as<int>());
+
+} FC_LOG_AND_RETHROW()
+
+
+BOOST_FIXTURE_TEST_CASE( activate_producer_standby_rewards_with_voted_producers, eosio_system_tester ) try {
+   // create accounts {defproducera, defproducerb, ..., defproducerz} and register as producers
+   std::vector<account_name> producer_names;
+   producer_names.reserve(26);
+   
+   // Active producers
+   const std::string root("defproducer");
+   for ( char c = 'a'; c <= 'z'; ++c ) {
+      producer_names.emplace_back(root + std::string(1, c));
+   }
+
+   setup_producer_accounts(producer_names);
+
+   for (auto a:producer_names)
+      regproducer(a);
+
+   produce_block(fc::hours(24));
+
+   // Simple check with 1st and last producers to verify that reward_information don't exist
+   BOOST_REQUIRE_THROW(get_reward_info(producer_names.front()), unpack_exception);
+   BOOST_REQUIRE_THROW(get_reward_info(producer_names.back()), unpack_exception);
+
+   // Vote for the 1st 21 producers
+   const asset large_asset = core_sym::from_string("80.0000");
+   create_account_with_resources( N(producvotera), config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset );
+   
+   transfer(config::system_account_name, "producvotera", core_sym::from_string("200000000.0000"), config::system_account_name);
+   BOOST_REQUIRE_EQUAL(success(), stake("producvotera", core_sym::from_string("70000000.0000"), core_sym::from_string("70000000.0000") ));
+   BOOST_REQUIRE_EQUAL(success(), vote( N(producvotera), vector<account_name>(producer_names.begin(), producer_names.begin()+21)));
+
+   activaterewd();
+
+   for (auto i = 0; i < producer_names.size(); i++) {
+      auto status = get_reward_info(*(producer_names.begin()+i))["status"].as<int>();
+
+      if (i < 21)
+         BOOST_REQUIRE_EQUAL(1 /* producer */ , status); 
+      else
+         BOOST_REQUIRE_EQUAL(0 /* none     */,  status);
+   }
+
+} FC_LOG_AND_RETHROW()
+
 
 BOOST_AUTO_TEST_SUITE_END()

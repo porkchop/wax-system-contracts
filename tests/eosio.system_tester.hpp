@@ -33,7 +33,7 @@ public:
       produce_blocks( 2 );
 
       create_accounts({ N(eosio.token), N(eosio.ram), N(eosio.ramfee), N(eosio.stake),
-               N(eosio.bpay), N(eosio.spay), N(eosio.voters), N(eosio.saving), N(eosio.names), N(genesis.wax) });
+               N(eosio.bpay), N(eosio.voters), N(eosio.saving), N(eosio.names), N(genesis.wax) });
 
 
       produce_blocks( 100 );
@@ -757,6 +757,11 @@ public:
       return abi_ser.binary_to_variant( "producer_info2", data, abi_serializer_max_time );
    }
 
+   fc::variant get_reward_info( const account_name& act ) {
+      vector<char> data = get_row_by_account( config::system_account_name, config::system_account_name, N(rewards), act );
+      return abi_ser.binary_to_variant( "rewards_info", data, abi_serializer_max_time );
+   }
+
    void create_currency( name contract, name manager, asset maxsupply ) {
       auto act =  mutable_variant_object()
          ("issuer",       manager )
@@ -846,6 +851,11 @@ public:
    fc::variant get_global_state3() {
       vector<char> data = get_row_by_account( config::system_account_name, config::system_account_name, N(global3), N(global3) );
       return data.empty() ? fc::variant() : abi_ser.binary_to_variant( "eosio_global_state3", data, abi_serializer_max_time );
+   }
+
+   fc::variant get_global_rewards() {
+      vector<char> data = get_row_by_account( config::system_account_name, config::system_account_name, N(glbrewards), N(glbrewards) );
+      return data.empty() ? fc::variant() : abi_ser.binary_to_variant( "eosio_global_rewards", data, abi_serializer_max_time );
    }
 
    fc::variant get_refund_request( name account ) {
@@ -974,6 +984,11 @@ public:
          produce_block();
       }
    }
+
+   action_result activaterewd() {
+      return push_action(config::system_account_name, N(activaterewd), mvo());
+   }
+
 
    abi_serializer abi_ser;
    abi_serializer token_abi_ser;

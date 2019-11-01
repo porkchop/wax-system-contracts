@@ -366,36 +366,34 @@ namespace eosiosystem {
    void system_contract::activaterewd() {
       require_auth( get_self() );
 
-      if (_grewards.activated)
-         eosio::print("Standby rewards feature already activated");
-      else { 
-         // Add reward information to all producers
-         for (const auto& producer: _producers) {
-            if (auto it = _rewards.find(producer.owner.value); it == _rewards.end()) {
-               _rewards.emplace(producer.owner, [&](rewards_info& info) {
-                  info.init(producer.owner);
-               });
-            }
+      check(!_grewards.activated, "Standby rewards feature already activated");
+
+      // Add reward information to all producers
+      for (const auto& producer: _producers) {
+         if (auto it = _rewards.find(producer.owner.value); it == _rewards.end()) {
+            _rewards.emplace(producer.owner, [&](rewards_info& info) {
+               info.init(producer.owner);
+            });
          }
-
-         // Mark the first 21 as "selected" to produce
-         auto idx = _producers.get_index<"prototalvote"_n>();
-         uint64_t i = 0;
-
-         for (auto it = idx.cbegin(); 
-              it != idx.cend() && i < 21 && 0 < it->total_votes && it->active(); 
-              ++it, ++i) 
-         {
-            if (auto it_rwd = _rewards.find(it->owner.value); it_rwd == _rewards.end()) {
-               _rewards.modify(it_rwd, same_payer, [&](rewards_info& info) {
-                  info.select(rewards_info::status_field::producer);
-               });
-            }
-         }
-
-         _grewards.activated = true;
-         eosio::print("Standby rewards feature activated");
       }
+
+      // Mark the first 21 as "selected" to produce
+      auto idx = _producers.get_index<"prototalvote"_n>();
+      uint64_t i = 0;
+
+      for (auto it = idx.cbegin(); 
+            it != idx.cend() && i < 21 && 0 < it->total_votes && it->active(); 
+            ++it, ++i) 
+      {
+         if (auto it_rwd = _rewards.find(it->owner.value); it_rwd != _rewards.end()) {
+            _rewards.modify(it_rwd, same_payer, [&](rewards_info& info) {
+               info.select(rewards_info::status_field::producer);
+            });
+         }
+      }
+
+      _grewards.activated = true;
+      eosio::print("Standby rewards feature activated\n");
    }
 
 } /// eosio.system

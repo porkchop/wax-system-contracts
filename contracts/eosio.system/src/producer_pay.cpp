@@ -103,9 +103,8 @@ namespace eosiosystem {
             token::transfer_action transfer_act{ token_account, { {get_self(), active_permission} } };
             transfer_act.send( get_self(), saving_account, asset(to_savings, core_symbol()), "unallocated inflation" );
             transfer_act.send( get_self(), voters_account, asset(to_voters, core_symbol()), "fund voters bucket" );
-            transfer_act.send( get_self(), bpay_account, asset(to_producers, core_symbol()), "fund voters bucket" );
-            transfer_act.send( get_self(), spay_account, asset(to_standbys, core_symbol()), "fund voters bucket" );
-            transfer_act.send( get_self(), genesis_account, asset(to_gbm, core_symbol()), "fund voters bucket" );
+            transfer_act.send( get_self(), bpay_account, asset(to_producers, core_symbol()), "fund bps bucket" );
+            transfer_act.send( get_self(), genesis_account, asset(to_gbm, core_symbol()), "fund gbm bucket" );
          }
 
          _gstate.perblock_bucket    += to_per_block_pay;
@@ -185,7 +184,8 @@ namespace eosiosystem {
          }
       }
       else {
-         per_block_pay = (static_cast<double>(_gstate.perblock_bucket) * prod.unpaid_blocks) / _gstate.total_unpaid_blocks;
+         if (_gstate.total_unpaid_blocks > 0)
+            per_block_pay = (static_cast<double>(_gstate.perblock_bucket) * prod.unpaid_blocks) / _gstate.total_unpaid_blocks;
       }
 
       check( per_block_pay >= 0, "producer per block pay must be greater or equal to 0" );    
