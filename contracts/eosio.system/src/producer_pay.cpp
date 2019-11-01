@@ -37,16 +37,16 @@ namespace eosiosystem {
       if ( prod != _producers.end() ) {
          _gstate.total_unpaid_blocks++;
          _producers.modify( prod, same_payer, [&](auto& p ) {
-               p.unpaid_blocks++;
+            p.unpaid_blocks++;
          });
       }
 
       // Counts blocks according to producer type
       if (_grewards.activated) {
-         auto reward = _rewards.find( producer.value );
-         if ( reward != _rewards.end() ) {
-            _rewards.modify( reward, same_payer, [&](auto& rec ) {
-                  rec.new_unpaid_block();
+         if (auto reward_it = _rewards.find( producer.value ); reward_it != _rewards.end() ) {
+            _grewards.new_total_unpaid_block(reward_it->get_current_type());    
+            _rewards.modify( reward_it, same_payer, [&](auto& rec ) {
+               rec.new_unpaid_block();
             });
          }
       }
@@ -92,8 +92,9 @@ namespace eosiosystem {
          auto to_per_block_pay = to_voters;
          auto to_gbm           = to_voters;
          auto to_savings       = new_tokens - (to_voters + to_per_block_pay + to_gbm);
-         auto to_producers     = to_per_block_pay * producer_perc_reward;
-         auto to_standbys      = to_per_block_pay * standby_perc_reward;
+         //auto to_producers     = to_per_block_pay * producer_perc_reward;
+         //auto to_standbys      = to_per_block_pay * standby_perc_reward;
+         auto to_producers     = to_per_block_pay;
 
          {
             token::issue_action issue_act{ token_account, { {get_self(), active_permission} } };
@@ -155,26 +156,20 @@ namespace eosiosystem {
       if (_grewards.activated) {
          // Adapter for global "*_perc_reward"
          auto perc_reward_by_type = [](auto type) { 
-            return type == rewards_info::status_field::producer 
+            return type == reward_type::producer 
                ? producer_perc_reward : standby_perc_reward;
          };
 
-         // Adapter for global "_grewards.total_unpaid_*_blocks"
-         auto total_unpaid_blocks_by_type = [&](auto type) {
-            return type == rewards_info::status_field::producer 
-               ? _grewards.total_unpaid_producer_blocks : _grewards.total_unpaid_standby_blocks;
-         };
+         const auto& reward = _rewards.get(owner.value); 
 
-         auto reward = _rewards.get(owner.value); 
-
-         for (auto prod_type: { rewards_info::status_field::producer, rewards_info::status_field::standby }) {
-            if (auto total_unpaid_blocks = total_unpaid_blocks_by_type(prod_type); total_unpaid_blocks > 0) {
+         for (auto prod_type: { reward_type::producer, reward_type::standby }) {
+            if (auto total_unpaid_blocks = _grewards.get_total_unpaid_blocks(prod_type); total_unpaid_blocks > 0) {
                auto counters = reward.get_counters(prod_type);
 
                if (counters.selection > 0 && counters.unpaid_blocks > 0) {
                   const auto efficiency = counters.unpaid_blocks / (counters.selection * 12.0);
                   const auto perblock_buckets = _gstate.perblock_bucket * perc_reward_by_type(prod_type); 
-                  
+                 
                   const int64_t partial_per_block_pay = 
                      efficiency * perblock_buckets * counters.unpaid_blocks / total_unpaid_blocks;
 
@@ -207,7 +202,7 @@ namespace eosiosystem {
       });
 
       if (_grewards.activated) {
-          auto reward = _rewards.get(owner.value); // later when "activated" flag will be removed this line can also be removed
+          const auto& reward = _rewards.get(owner.value); // later when "activated" flag will be removed this line can also be removed
          _rewards.modify( reward, same_payer, [&](auto& rec) {
             rec.reset_counters();
          });
