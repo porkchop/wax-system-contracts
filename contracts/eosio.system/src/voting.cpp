@@ -190,6 +190,7 @@ namespace eosiosystem {
       select_producers_into(0, 21 - top_producers.size(), reward_type::producer, top_producers);
 
       if (top_producers.size() == 0 || top_producers.size() < _gstate.last_producer_schedule_size ) {
+         eosio::print("No top producers or they are less than the last scheduled");
          return;
       }
 
