@@ -219,17 +219,19 @@ namespace eosiosystem {
     * Global counters for producer/standby rewards
     */
    struct [[eosio::table("glbrewards"), eosio::contract("eosio.system")]] eosio_global_rewards {
-      struct counter_type {
+      // A unique name is needed in order to avoid problems with ABI generator
+      // which doesn't understand scopes (see rewards_info table)
+      struct global_rewards_counter_type {
          uint64_t total_unpaid_blocks = 0;
          // other counters here
       };
 
       bool activated = false;  // Producer/standby rewards activated 
-      std::map<uint32_t /*reward_type*/, counter_type> counters;
+      std::map<uint32_t /*reward_type*/, global_rewards_counter_type> counters;
 
       eosio_global_rewards() { 
-         counters.emplace(enum_cast(reward_type::producer), counter_type());
-         counters.emplace(enum_cast(reward_type::standby), counter_type());
+         counters.emplace(enum_cast(reward_type::producer), global_rewards_counter_type());
+         counters.emplace(enum_cast(reward_type::standby), global_rewards_counter_type());
       }
 
       void new_total_unpaid_block(reward_type type) {
@@ -340,14 +342,16 @@ namespace eosiosystem {
     * Producer reward information  
     */
    struct [[eosio::table, eosio::contract("eosio.system")]] rewards_info {
-      struct counter_type {
-         uint64_t unpaid_blocks = 0; // # of blocks produced
-         uint64_t selection = 0;     // # of times a 'producer' was selected to produce
+      // A unique name is needed in order to avoid problems with ABI generator
+      // which doesn't understand scopes (see eosio_global_rewards)
+      struct reward_info_counter_type {
+         uint64_t unpaid_blocks = 0;  // # of blocks produced
+         uint64_t selection     = 0;  // # of times a 'producer' was selected to produce
       };
 
-      name                               owner;           /// producer
-      uint32_t                           current_type = 0;
-      std::map<uint32_t /*reward_type*/, counter_type> counters;
+      name                                         owner;
+      uint32_t                                     current_type = 0;
+      std::map<uint32_t, reward_info_counter_type> counters; // [reward_type, counters]
 
       // Table helpers / accessors
 
@@ -358,8 +362,8 @@ namespace eosiosystem {
       void init(const name& owner) {
          this->owner = owner;
          current_type = enum_cast(reward_type::none);
-         counters.try_emplace(enum_cast(reward_type::producer), counter_type());
-         counters.try_emplace(enum_cast(reward_type::standby), counter_type());
+         counters.try_emplace(enum_cast(reward_type::producer), reward_info_counter_type());
+         counters.try_emplace(enum_cast(reward_type::standby), reward_info_counter_type());
       }
 
       void set_current_type(reward_type rhs) {
