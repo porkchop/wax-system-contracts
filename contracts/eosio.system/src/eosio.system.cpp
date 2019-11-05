@@ -381,8 +381,8 @@ namespace eosiosystem {
       /// @todo It's necessary to check for "active" producers.
       if (std::distance(_producers.cbegin(), _producers.cend()) < 21) {
          for (const auto& producer: _producers) {
-            if (auto it = _rewards.find(producer.owner.value); it == _rewards.end()) {
-               _rewards.emplace(producer.owner, [&](rewards_info& info) {
+            if (auto it = _rewards.find(producer.owner.value); it != _rewards.end()) {
+               _rewards.modify(it, same_payer, [&](rewards_info& info) {
                   info.select(reward_type::producer);
                });
             }
