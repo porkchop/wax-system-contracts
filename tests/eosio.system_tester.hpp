@@ -26,6 +26,13 @@ using mvo = fc::mutable_variant_object;
 
 namespace eosio_system {
 
+enum reward_type {
+   rewNone,
+   rewProducer,
+   rewStandby
+};
+
+
 class eosio_system_tester : public TESTER {
 public:
 
@@ -1022,18 +1029,35 @@ inline uint64_t M( const string& eos_str ) {
    return core_sym::from_string( eos_str ).get_amount();
 }
 
+
+/// Converts a fc::variant (of type fc::variant_object) into a std::map
+template<typename K = uint64_t>
+std::map<K, fc::variant> vo2map(const fc::variant& var)
+{
+   //BOOST_REQUIRE_EQUAL(var.get_type(), fc::variant::array_type);
+   std::map<K, fc::variant> result;
+
+   for (const auto& v: var.get_array()) {
+      //BOOST_REQUIRE_EQUAL(v.get_type(), fc::variant::object_type);
+      result.emplace(v["key"].as<K>(), v["value"]);
+   }
+   return result;
 }
 
+} // namespace eosio_system
+
 
 //
-// std::ostream printer helpers
+// std::ostream print helpers
 //
 namespace std {
-   inline std::ostream& operator<<(std::ostream& oss, const std::vector<account_name>& names)
+
+   template<typename T>
+   inline std::ostream& operator<<(std::ostream& oss, const std::vector<T>& data)
    {
       oss << "[ ";
-      for (auto const& n: names)
-         oss << n.to_string() << ' ';
+      for (auto const& d: data)
+         oss << d << ' ';
       return oss << ']';
    }
 
