@@ -1023,3 +1023,76 @@ inline uint64_t M( const string& eos_str ) {
 }
 
 }
+
+
+//
+// std::ostream printer helpers
+//
+namespace std {
+   inline std::ostream& operator<<(std::ostream& oss, const std::vector<account_name>& names)
+   {
+      oss << "[ ";
+      for (auto const& n: names)
+         oss << n.to_string() << ' ';
+      return oss << ']';
+   }
+
+   template<typename K, typename V>
+   std::ostream& operator<<(std::ostream& oss, const std::map<K, V>& data)
+   {
+      oss << "{ ";
+      for (const auto& v: data)
+         oss << v;
+      return oss << '}';
+   }
+
+   template<typename K, typename V>
+   std::ostream& operator<<(std::ostream& oss, const std::pair<K, V>& data)
+   {
+      return oss << '<' << data.first << ", " << data.second << '>';
+   }
+
+   std::ostream& operator<<(std::ostream& oss, const fc::variant_object& var);
+
+   inline std::ostream& operator<<(std::ostream& oss, const fc::variant& var)
+   {
+       switch(var.get_type()) {
+            case fc::variant::null_type:   oss << "<null>";        break;
+            case fc::variant::int64_type:  oss << var.as_int64();  break;
+            case fc::variant::uint64_type: oss << var.as_uint64(); break;
+            case fc::variant::double_type: oss << var.as_double(); break;
+            case fc::variant::bool_type:   oss << var.as_bool();   break;
+            case fc::variant::string_type: oss << var.as_string(); break;
+            case fc::variant::blob_type:   oss << "<blob - todo>"; break;
+
+            case fc::variant::array_type:
+                {
+                    const variants& vars = var.get_array();
+                    oss << "[ ";
+                    for (auto itr = vars.begin(); itr != vars.end(); ++itr) {
+                        oss << *itr;
+                        oss << ' ';
+                    }
+                    oss << ']';
+                }
+                break;
+
+            case fc::variant::object_type:
+                oss << var.get_object();
+                break;
+
+            default:
+                oss << "<unknown";
+       }
+       return oss;
+   }
+
+   inline std::ostream& operator<<(std::ostream& oss, const fc::variant_object& var)
+   {
+        oss << "{ ";
+        for (const auto& o: var)
+            oss << "[ " << o.key() << ", " << o.value() << " ] ";
+        return oss << '}';
+   }
+
+} // namespace std
