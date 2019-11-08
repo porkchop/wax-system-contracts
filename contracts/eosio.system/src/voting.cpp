@@ -26,6 +26,48 @@ namespace {
 
 } // namespace
 
+
+////////////////////////////////////////////////////////////////////////////////
+/// @todo This should be moved to CDT
+
+#include <variant>
+#include <vector>
+
+namespace eosio {
+   namespace internal_use_do_not_use {
+      extern "C" {
+        __attribute((eosio_wasm_import))
+        int64_t set_proposed_producers( char*, uint32_t );
+      }
+   }
+
+   using schedule_version = uint64_t;
+
+   enum class proposed_producers_errors {
+      disallow_empty_producer_schedule = -1,
+      already_proposed_schedule = -2,
+      schedule_does_not_change = -3,
+      schedule_would_not_change = -4
+   };
+
+   auto set_proposed_producers_ex(const std::vector<producer_key>& prods)
+      -> std::variant<schedule_version, proposed_producers_errors>
+   {
+      auto packed_prods = eosio::pack(prods);
+
+      int64_t ret = internal_use_do_not_use::set_proposed_producers(
+         static_cast<char*>(packed_prods.data()), packed_prods.size());
+
+      if (ret >= 0)
+         return static_cast<schedule_version>(ret);
+      else
+         return static_cast<proposed_producers_errors>(ret);
+   }
+} // namespace eosio
+
+// End of CDT section
+////////////////////////////////////////////////////////////////////////////////
+
 namespace eosiosystem {
 
    using eosio::const_mem_fun;
@@ -203,10 +245,24 @@ namespace eosiosystem {
       for( const auto& item : top_producers )
          producers.push_back(std::get<0>(item));
 
-      if( set_proposed_producers( producers ) >= 0 ) {
-         _gstate.last_producer_schedule_size = static_cast<decltype(_gstate.last_producer_schedule_size)>( top_producers.size() );
+      auto result = set_proposed_producers_ex( producers );
 
-         /// @todo Check this call in this place
+      using eosio::proposed_producers_errors;
+
+      if (auto err = std::get_if<proposed_producers_errors>(&result)) {
+         switch(*err) {
+            case proposed_producers_errors::schedule_does_not_change:
+            case proposed_producers_errors::schedule_would_not_change:
+               update_producer_reward_status(top_producers);
+               break;
+
+            default:
+               ;
+         }
+      }
+      else {
+         // New list accepted
+         _gstate.last_producer_schedule_size = static_cast<decltype(_gstate.last_producer_schedule_size)>( top_producers.size() );
          update_producer_reward_status(top_producers);
       }
    }
