@@ -223,7 +223,7 @@ namespace eosiosystem {
       // which doesn't understand scopes (see rewards_info table)
       struct global_rewards_counter_type {
          uint64_t total_unpaid_blocks = 0;
-         // other counters here
+         /// @todo Other counters here
       };
 
       bool activated = false;  // Producer/standby rewards activated 
@@ -234,16 +234,15 @@ namespace eosiosystem {
          counters.emplace(enum_cast(reward_type::standby), global_rewards_counter_type());
       }
 
-      void new_total_unpaid_block(reward_type type) {
+      auto& get_counters(reward_type type) {
          auto it = counters.find(enum_cast(type));
          check(it != counters.end(), "Invalid reward type");
-         it->second.total_unpaid_blocks++;
+         return it->second;
       }
 
-      auto get_total_unpaid_blocks(reward_type type) {
-         auto it = counters.find(enum_cast(type));
-         check(it != counters.end(), "Invalid reward type");
-         return it->second.total_unpaid_blocks;
+      /// @todo Maybe this function can be removed (just use get_counters)
+      void new_total_unpaid_block(reward_type type) {
+         get_counters(type).total_unpaid_blocks++;
       }
       
       EOSLIB_SERIALIZE( eosio_global_rewards, (activated)(counters) )

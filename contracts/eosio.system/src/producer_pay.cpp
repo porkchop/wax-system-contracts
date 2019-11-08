@@ -92,9 +92,6 @@ namespace eosiosystem {
          auto to_per_block_pay = to_voters;
          auto to_gbm           = to_voters;
          auto to_savings       = new_tokens - (to_voters + to_per_block_pay + to_gbm);
-         //auto to_producers     = to_per_block_pay * producer_perc_reward;
-         //auto to_standbys      = to_per_block_pay * standby_perc_reward;
-         auto to_producers     = to_per_block_pay;
 
          {
             token::issue_action issue_act{ token_account, { {get_self(), active_permission} } };
@@ -104,7 +101,7 @@ namespace eosiosystem {
             token::transfer_action transfer_act{ token_account, { {get_self(), active_permission} } };
             transfer_act.send( get_self(), saving_account, asset(to_savings, core_symbol()), "unallocated inflation" );
             transfer_act.send( get_self(), voters_account, asset(to_voters, core_symbol()), "fund voters bucket" );
-            transfer_act.send( get_self(), bpay_account, asset(to_producers, core_symbol()), "fund bps bucket" );
+            transfer_act.send( get_self(), bpay_account, asset(to_per_block_pay, core_symbol()), "fund bps bucket" );
             transfer_act.send( get_self(), genesis_account, asset(to_gbm, core_symbol()), "fund gbm bucket" );
          }
 
@@ -162,15 +159,16 @@ namespace eosiosystem {
 
          const auto& reward = _rewards.get(owner.value); 
 
-         for (auto prod_type: { reward_type::producer, reward_type::standby }) {
-            if (auto total_unpaid_blocks = _grewards.get_total_unpaid_blocks(prod_type); total_unpaid_blocks > 0) {
-               auto counters = reward.get_counters(prod_type);
+         for (auto type: { reward_type::producer, reward_type::standby }) {
+            if (auto total_unpaid_blocks = _grewards.get_counters(type).total_unpaid_blocks; total_unpaid_blocks > 0) {
+               auto counters = reward.get_counters(type);
 
                if (counters.selection > 0 && counters.unpaid_blocks > 0) {
-                  const auto efficiency = counters.unpaid_blocks / (counters.selection * 12.0);
-                  const auto perblock_buckets = _gstate.perblock_bucket * perc_reward_by_type(prod_type); 
-                 
-                  const int64_t partial_per_block_pay = 
+                  // efficiency > 1 is normalized to 1 (this can happen when there are less than 21 producers
+                  const auto efficiency = std::min(counters.unpaid_blocks / (counters.selection * 12.0), 1.0);
+                  const auto perblock_buckets = _gstate.perblock_bucket * perc_reward_by_type(type);
+                  
+                  const int64_t partial_per_block_pay =
                      efficiency * perblock_buckets * counters.unpaid_blocks / total_unpaid_blocks;
 
                   per_block_pay += partial_per_block_pay;
@@ -192,7 +190,14 @@ namespace eosiosystem {
                                  );
 
       _gstate.perblock_bucket     -= per_block_pay;
-      _gstate.total_unpaid_blocks -= prod.unpaid_blocks;
+      _gstate.total_unpaid_blocks -= prod.unpaid_blocks; /// @todo This could be replaced in a future by the following lines
+
+      if (_grewards.activated) {
+         for (auto type: { reward_type::producer, reward_type::standby }) {
+            _grewards.get_counters(type).total_unpaid_blocks -=
+                     _rewards.get(owner.value).get_counters(type).unpaid_blocks;
+         }
+      }
 
       update_total_votepay_share( ct, -new_votepay_share, (updated_after_threshold ? prod.total_votes : 0.0) );
 
