@@ -829,7 +829,7 @@ public:
       return stake2votes( core_sym::from_string(s) );
    }
 
-   fc::variant get_stats( const string& symbolname ) {
+   fc::variant get_stats( const string& symbolname = "4," CORE_SYM_NAME) {
       auto symb = eosio::chain::symbol::from_string(symbolname);
       auto symbol_code = symb.to_symbol_code().value;
       vector<char> data = get_row_by_account( N(eosio.token), symbol_code, N(stat), symbol_code );
@@ -1055,9 +1055,12 @@ namespace std {
    template<typename T>
    inline std::ostream& operator<<(std::ostream& oss, const std::vector<T>& data)
    {
-      oss << '[';
-      for (auto const& d: data) oss << '(' << d << ')';
-      return oss << ']';
+      oss << "vector{";
+      for (auto it = data.begin(); it != data.end(); ++it) {
+         oss << *it;
+         if (it != data.end() - 1) oss << ", ";
+      }
+      return oss << '}';
    }
 
    template<typename K, typename V>
@@ -1069,8 +1072,11 @@ namespace std {
    template<typename K, typename V>
    std::ostream& operator<<(std::ostream& oss, const std::map<K, V>& data)
    {
-      oss << '{';
-      for (const auto& v: data) oss << '(' << v << ')';
+      oss << "map{";
+      for (auto it = data.begin(); it != data.end(); ++it) {
+         oss << *it;
+         if (it != data.end() - 1) oss << ", ";
+      }
       return oss << '}';
    }
 
@@ -1084,16 +1090,18 @@ namespace std {
          case fc::variant::uint64_type: oss << var.as_uint64(); break;
          case fc::variant::double_type: oss << var.as_double(); break;
          case fc::variant::bool_type:   oss << var.as_bool();   break;
-         case fc::variant::string_type: oss << var.as_string(); break;
+         case fc::variant::string_type: oss << "'" << var.as_string() << "'"; break;
          case fc::variant::blob_type:   oss << "<blob - todo>"; break;
 
          case fc::variant::array_type:
             {
                const variants& vars = var.get_array();
-               oss << '[';
-               for (auto itr = vars.begin(); itr != vars.end(); ++itr)
-                  oss << '(' << *itr << ')';
-               oss << ']';
+               oss << "varray{";
+               for (auto it = vars.begin(); it != vars.end(); ++it) {
+                  oss << *it;
+                  if (it != vars.end() - 1) oss << ", ";
+               }
+               oss << '}';
             }
             break;
 
@@ -1109,9 +1117,12 @@ namespace std {
 
    inline std::ostream& operator<<(std::ostream& oss, const fc::variant_object& var)
    {
-      oss << '<';
-      for (const auto& o: var) oss << '(' << o.key() << ": " << o.value() << ')';
-      return oss << '>';
+      oss << "vo{";
+      for (auto it = var.begin(); it != var.end(); it++) {
+         oss << it->key() << ": " << it->value();
+         if (it != var.end() - 1) oss << ", ";
+      }
+      return oss << '}';
    }
 
 } // namespace std
