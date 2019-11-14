@@ -753,8 +753,6 @@ BOOST_FIXTURE_TEST_CASE( stake_to_another_user_not_from_refund, eosio_system_tes
 BOOST_FIXTURE_TEST_CASE( producer_register_unregister, eosio_system_tester ) try {
    issue_and_transfer( "alice1111111", core_sym::from_string("1000.0000"),  config::system_account_name );
 
-   activaterewd();
-
    //fc::variant params = producer_parameters_example(1);
    auto key =  fc::crypto::public_key( std::string("EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV") );
    BOOST_REQUIRE_EQUAL( success(), push_action(N(alice1111111), N(regproducer), mvo()
@@ -770,13 +768,23 @@ BOOST_FIXTURE_TEST_CASE( producer_register_unregister, eosio_system_tester ) try
    BOOST_REQUIRE_EQUAL( 0, info["total_votes"].as_double() );
    BOOST_REQUIRE_EQUAL( "http://block.one", info["url"].as_string() );
 
+   // Still no reward information (reward feature is not active)
+   BOOST_REQUIRE_THROW(get_reward_info( "alice1111111" ), unpack_exception);
+
+   activaterewd();
+
    auto reward_info = get_reward_info( "alice1111111" );
+
+   // We have only 1 producer (the 1st 21 producers are of type "producer" and are selected)
    BOOST_REQUIRE_EQUAL( "alice1111111", reward_info["owner"].as_string() );
-   BOOST_REQUIRE_EQUAL( 1, reward_info["current_type"].as<uint32_t>() );
+   BOOST_REQUIRE_EQUAL( rewProducer, reward_info["current_type"].as<uint32_t>() );
    BOOST_REQUIRE_EQUAL( 0, vo2map(reward_info["counters"])[rewProducer]["unpaid_blocks"].as<uint32_t>() );
    BOOST_REQUIRE_EQUAL( 1, vo2map(reward_info["counters"])[rewProducer]["selection"].as<uint32_t>() );
    BOOST_REQUIRE_EQUAL( 0, vo2map(reward_info["counters"])[rewStandby]["unpaid_blocks"].as<uint32_t>() );
    BOOST_REQUIRE_EQUAL( 0, vo2map(reward_info["counters"])[rewStandby]["selection"].as<uint32_t>() );
+
+   /// @todo Test registration of more than 21 producers
+
 
    //change parameters one by one to check for things like #3783
    //fc::variant params2 = producer_parameters_example(2);
