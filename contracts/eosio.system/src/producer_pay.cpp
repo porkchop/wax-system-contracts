@@ -169,7 +169,6 @@ namespace eosiosystem {
 
          struct data {
             int64_t     per_block_pay = 0;
-            double      percent = 0.0;
             eosio::name account;
             std::string check_msg;
             std::string tx_msg;
@@ -178,7 +177,6 @@ namespace eosiosystem {
          std::map<reward_type, data> info {
             {  reward_type::producer,
                { 0,
-                 producer_perc_reward,
                  bpay_account,
                  "producer per block pay must be greater or equal to 0",
                  "producer block pay"
@@ -186,7 +184,6 @@ namespace eosiosystem {
             },
             {  reward_type::standby,
                { 0,
-                 standby_perc_reward,
                  spay_account,
                  "standby per block pay must be greater or equal to 0",
                  "standby block pay"
@@ -198,46 +195,22 @@ namespace eosiosystem {
 
          for (auto type: reward_types) {
             auto& curr_info = info[type];
+            auto& curr_gcnt = _grewards.get_counters(type);
+            auto& curr_cnt = reward.get_counters(type);
 
-            if (auto total_unpaid_blocks = _grewards.get_counters(type).total_unpaid_blocks; total_unpaid_blocks > 0) {
+            if (auto total_unpaid_blocks = curr_gcnt.total_unpaid_blocks; total_unpaid_blocks > 0) {
                auto counters = reward.get_counters(type);
 
                if (counters.selection > 0 && counters.unpaid_blocks > 0) {
-                  const auto perblock_buckets = _gstate.perblock_bucket * curr_info.percent;
-                  
-                  curr_info.per_block_pay += perblock_buckets * counters.unpaid_blocks / total_unpaid_blocks;
+                  curr_info.per_block_pay +=
+                     curr_gcnt.perblock_bucket * counters.unpaid_blocks / total_unpaid_blocks;
                }
             }
 
             check(curr_info.per_block_pay >= 0, curr_info.check_msg);
-         }
 
-         double new_votepay_share = update_producer_votepay_share( prod2,
-                                    ct,
-                                    updated_after_threshold ? 0.0 : prod.total_votes,
-                                    true // reset votepay_share to zero after updating
-                                 );
-
-         for (auto type: reward_types) {
-            auto& cnt = _grewards.get_counters(type);
-
-            cnt.perblock_bucket -= info[type].per_block_pay;
-            cnt.total_unpaid_blocks -= _rewards.get(owner.value).get_counters(type).unpaid_blocks;
-         }
-
-         update_total_votepay_share( ct, -new_votepay_share, (updated_after_threshold ? prod.total_votes : 0.0) );
-
-         _producers.modify( prod, same_payer, [&](auto& p) {
-            p.last_claim_time = ct;
-            //p.unpaid_blocks   = 0;
-         });
-
-         _rewards.modify( reward, same_payer, [&](auto& rec) {
-            rec.reset_counters();
-         });
-
-         for (auto type: reward_types) {
-            auto& curr_info = info[type];
+            curr_gcnt.perblock_bucket -= curr_info.per_block_pay;
+            curr_gcnt.total_unpaid_blocks -= curr_cnt.unpaid_blocks;
 
             if (curr_info.per_block_pay > 0) {
                if (as_gbm){
@@ -249,6 +222,24 @@ namespace eosiosystem {
                }
             }
          }
+
+         double new_votepay_share = update_producer_votepay_share(
+            prod2, ct,
+            updated_after_threshold ? 0.0 : prod.total_votes,
+            true); // reset votepay_share to zero after updating
+
+         update_total_votepay_share(
+            ct, -new_votepay_share, (updated_after_threshold ? prod.total_votes : 0.0) );
+
+         _producers.modify( prod, same_payer, [&](auto& p) {
+            p.last_claim_time = ct;
+            //p.unpaid_blocks   = 0;
+         });
+
+         _rewards.modify( reward, same_payer, [&](auto& rec) {
+            rec.reset_counters();
+         });
+
       }
       else {
          int64_t per_block_pay = 0;
