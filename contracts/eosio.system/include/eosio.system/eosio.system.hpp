@@ -388,7 +388,6 @@ namespace eosiosystem {
 
       void select(reward_type type) {
          set_current_type(type);
-
          get_counters(type).selection++;
       }
 

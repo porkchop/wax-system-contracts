@@ -368,6 +368,8 @@ namespace eosiosystem {
 
       check(!_grewards.activated, "Standby rewards feature already activated");
 
+      _grewards.get_counters(reward_type::producer).total_unpaid_blocks = _gstate.total_unpaid_blocks;
+
       // Add reward information to all producers
       for (const auto& producer: _producers) {
          if (auto it = _rewards.find(producer.owner.value); it == _rewards.end()) {
