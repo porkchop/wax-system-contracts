@@ -373,6 +373,11 @@ namespace eosiosystem {
          if (auto it = _rewards.find(producer.owner.value); it == _rewards.end()) {
             _rewards.emplace(producer.owner, [&](rewards_info& info) {
                info.init(producer.owner);
+
+               if (producer.unpaid_blocks > 0) {
+                  info.get_counters(reward_type::producer).unpaid_blocks = producer.unpaid_blocks;
+                  info.get_counters(reward_type::producer).selection = 1; /// @todo Is this correct? we don't know how many time was selected :-O
+               }
             });
          }
       }
