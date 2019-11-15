@@ -2530,7 +2530,7 @@ BOOST_FIXTURE_TEST_CASE(producer_pay_reward, eosio_system_tester, * boost::unit_
 
 } FC_LOG_AND_RETHROW()
 
-BOOST_FIXTURE_TEST_CASE(producer_standby_pay, eosio_system_tester, * boost::unit_test::tolerance(1e-10)) try {
+BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boost::unit_test::tolerance(1e-10)) try {
 
   /// @todo
 
