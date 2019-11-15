@@ -120,8 +120,8 @@ namespace eosiosystem {
             info.last_votepay_share_update = ct;
          });
 
-         if (_grewards.activated) {
-            _rewards.emplace( producer, [&]( rewards_info& info ){
+         if (_greward.activated) {
+            _rewards.emplace( producer, [&]( reward_info& info ){
                info.init(producer);
 
                // If we only have 21 producers or less they are ready to produce, otherwise

@@ -29,10 +29,10 @@ namespace eosiosystem {
       if( _gstate.last_pervote_bucket_fill == time_point() )  /// start the presses
          _gstate.last_pervote_bucket_fill = current_time_point();
 
-      if (_grewards.activated) {
+      if (_greward.activated) {
          // Counts blocks according to producer type
          if (auto it = _rewards.find( producer.value ); it != _rewards.end() ) {
-            _grewards.get_counters(it->get_current_type()).total_unpaid_blocks++;
+            _greward.get_counters(it->get_current_type()).total_unpaid_blocks++;
 
             _rewards.modify( it, same_payer, [&](auto& rec ) {
                rec.get_counters(it->get_current_type()).unpaid_blocks++;
@@ -107,7 +107,7 @@ namespace eosiosystem {
             transfer_act.send( get_self(), voters_account, asset(to_voters, core_symbol()), "fund voters bucket" );
             transfer_act.send( get_self(), genesis_account, asset(to_gbm, core_symbol()), "fund gbm bucket" );
 
-            if (_grewards.activated) {
+            if (_greward.activated) {
                transfer_act.send( get_self(), bpay_account, asset(to_per_block_pay_prod, core_symbol()), "fund bps bucket" );
                transfer_act.send( get_self(), spay_account, asset(to_per_block_pay_stb, core_symbol()), "fund sps bucket" );
             }
@@ -115,9 +115,9 @@ namespace eosiosystem {
                transfer_act.send( get_self(), bpay_account, asset(to_per_block_pay, core_symbol()), "fund bps bucket" );
          }
 
-         if (_grewards.activated) {
-            _grewards.get_counters(reward_type::producer).perblock_bucket += to_per_block_pay_prod;
-            _grewards.get_counters(reward_type::standby).perblock_bucket += to_per_block_pay_stb;
+         if (_greward.activated) {
+            _greward.get_counters(reward_type::producer).perblock_bucket += to_per_block_pay_prod;
+            _greward.get_counters(reward_type::standby).perblock_bucket += to_per_block_pay_stb;
          }
          else
             _gstate.perblock_bucket += to_per_block_pay;
@@ -164,7 +164,7 @@ namespace eosiosystem {
       // This is okay because in this case the producer will not get paid anything either way.
       // In fact it is desired behavior because the producers votes need to be counted in the global total_producer_votepay_share for the first time.
 
-      if (_grewards.activated) {
+      if (_greward.activated) {
          constexpr reward_type reward_types[] = { reward_type::producer, reward_type::standby };
 
          struct data {
@@ -195,7 +195,7 @@ namespace eosiosystem {
 
          for (auto type: reward_types) {
             auto& curr_info = info[type];
-            auto& curr_gcnt = _grewards.get_counters(type);
+            auto& curr_gcnt = _greward.get_counters(type);
             auto& curr_cnt = reward.get_counters(type);
 
             if (auto total_unpaid_blocks = curr_gcnt.total_unpaid_blocks; total_unpaid_blocks > 0) {
@@ -213,18 +213,18 @@ namespace eosiosystem {
             curr_gcnt.total_unpaid_blocks -= curr_cnt.unpaid_blocks;
 
             if (curr_info.per_block_pay > 0) {
-               if (as_gbm){
+               if (as_gbm)
                   send_genesis_token( curr_info.account, owner, asset(curr_info.per_block_pay, core_symbol()));
-               }
                else {
                   token::transfer_action transfer_act{ token_account, { {curr_info.account, active_permission}, {owner, active_permission} } };
-                  transfer_act.send( curr_info.account, owner, asset(curr_info.per_block_pay, core_symbol()), curr_info.tx_msg );
+                  transfer_act.send(curr_info.account, owner, asset(curr_info.per_block_pay, core_symbol()), curr_info.tx_msg );
                }
             }
          }
 
          double new_votepay_share = update_producer_votepay_share(
-            prod2, ct,
+            prod2,
+            ct,
             updated_after_threshold ? 0.0 : prod.total_votes,
             true); // reset votepay_share to zero after updating
 
@@ -239,7 +239,6 @@ namespace eosiosystem {
          _rewards.modify( reward, same_payer, [&](auto& rec) {
             rec.reset_counters();
          });
-
       }
       else {
          int64_t per_block_pay = 0;
