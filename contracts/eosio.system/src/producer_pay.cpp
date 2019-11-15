@@ -1,6 +1,8 @@
 #include <eosio.system/eosio.system.hpp>
 #include <eosio.token/eosio.token.hpp>
 
+#include <eosio.system/debug_print.hpp>
+
 namespace eosiosystem {
    
    using eosio::current_time_point;
@@ -207,8 +209,12 @@ namespace eosiosystem {
 
             check(curr_info.per_block_pay >= 0, curr_info.check_msg);
 
+            debug::print("[%] Total = %, partial = %\n", int(type), curr_gcnt.total_unpaid_blocks, curr_cnt.unpaid_blocks);
+
             curr_gcnt.perblock_bucket -= curr_info.per_block_pay;
             curr_gcnt.total_unpaid_blocks -= curr_cnt.unpaid_blocks;
+
+            debug::print("[%] Total = %, partial = %\n", int(type), curr_gcnt.total_unpaid_blocks, curr_cnt.unpaid_blocks);
 
             if (curr_info.per_block_pay > 0) {
                if (as_gbm)

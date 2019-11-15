@@ -262,7 +262,9 @@ namespace eosiosystem {
       }
       else {
          // New list accepted
-         _gstate.last_producer_schedule_size = static_cast<decltype(_gstate.last_producer_schedule_size)>( top_producers.size() );
+         _gstate.last_producer_schedule_size =
+            static_cast<decltype(_gstate.last_producer_schedule_size)>( top_producers.size() );
+
          update_producer_reward_status(top_producers);
       }
    }
