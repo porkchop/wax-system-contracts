@@ -199,11 +199,9 @@ namespace eosiosystem {
             auto& curr_cnt = reward.get_counters(type);
 
             if (auto total_unpaid_blocks = curr_gcnt.total_unpaid_blocks; total_unpaid_blocks > 0) {
-               auto counters = reward.get_counters(type);
-
-               if (counters.selection > 0 && counters.unpaid_blocks > 0) {
+               if (curr_cnt.selection > 0 && curr_cnt.unpaid_blocks > 0) {
                   curr_info.per_block_pay +=
-                     curr_gcnt.perblock_bucket * counters.unpaid_blocks / total_unpaid_blocks;
+                     curr_gcnt.perblock_bucket * curr_cnt.unpaid_blocks / total_unpaid_blocks;
                }
             }
 
