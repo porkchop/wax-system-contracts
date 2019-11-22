@@ -84,6 +84,18 @@ namespace eosiosystem {
       auto prod = _producers.find( producer.value );
       const auto ct = current_time_point();
 
+      auto add_reward_info = [&]() {
+         _rewards.emplace( producer, [&]( reward_info& info ){
+            info.init(producer);
+
+            // If we only have 21 producers or less they are ready to produce, otherwise
+            // they will have to wait to be selected
+            /// @todo It's necessary to check for "active" producers.
+            if (std::distance(_producers.cbegin(), _producers.cend()) <= 21)
+               info.select(reward_type::producer);
+         });
+      };
+
       if ( prod != _producers.end() ) {
          _producers.modify( prod, producer, [&]( producer_info& info ){
             info.producer_key = producer_key;
@@ -104,6 +116,11 @@ namespace eosiosystem {
             // When introducing the producer2 table row for the first time, the producer's votes must also be accounted for in the global total_producer_votepay_share at the same time.
          }
 
+         if (_greward.activated) {
+            if (auto it = _rewards.find(producer.value); it == _rewards.end())
+               add_reward_info();
+         }
+
       } else {
          _producers.emplace( producer, [&]( producer_info& info ){
             info.owner           = producer;
@@ -120,17 +137,8 @@ namespace eosiosystem {
             info.last_votepay_share_update = ct;
          });
 
-         if (_greward.activated) {
-            _rewards.emplace( producer, [&]( reward_info& info ){
-               info.init(producer);
-
-               // If we only have 21 producers or less they are ready to produce, otherwise
-               // they will have to wait to be selected 
-               /// @todo It's necessary to check for "active" producers.
-               if (std::distance(_producers.cbegin(), _producers.cend()) < 21) 
-                  info.select(reward_type::producer);
-            });
-         }
+         if (_greward.activated)
+            add_reward_info();
       }
 
    }
