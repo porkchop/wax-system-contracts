@@ -16,12 +16,12 @@
 // percent expressed as a float number between 0 and 1
 #define BOOST_REQUIRE_APROX(R, L, percent) \
    { \
-      if (R == 0 || L == 0) \
+      if (R == 0.0 || L == 0.0) \
          BOOST_REQUIRE_EQUAL(R, L); \
       else { \
          auto A = std::max(R, L); \
          auto B = std::min(R, L); \
-         if (B / static_cast<double>(A) > 100 - percent) \
+         if (B / static_cast<double>(A) > percent) \
             BOOST_FAIL("[" << R << "] !aprox to [" << L << "] (in " << percent * 100 << "%)"); \
       } \
    }
@@ -2566,7 +2566,7 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
 
    const asset large_asset = core_sym::from_string("80.0000");
 
-   const char* voters[] = { "producvotera", "producvoterb" /*, "producvoterc"*/ };
+   const char* voters[] = { "votera", "voterb", "voterc", "voterd" };
 
    for (auto v: voters) {
       BOOST_TEST_CHECKPOINT("Voter = " << v);
@@ -2583,8 +2583,8 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
    auto gen_producters = [&](const std::string& prefix, std::size_t quantity, prod_vec_t& result) {
       for (char c = 'a'; c <= 'z' && c - 'a' < quantity; c++ ) {
          account_name prod{prefix + std::string(1, c)};
+         BOOST_TEST_CHECKPOINT("Producer: " << prod.to_string());
 
-         //BOOST_TEST_MESSAGE("Producer: " << prod.to_string());
          result.emplace_back(prod);
          create_account_with_resources(
             prod, config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset);
@@ -2593,99 +2593,128 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
       }
    };
 
-   //activaterewd();
-
-   gen_producters("defproducer", 21, producers);
-   produce_block();
-
-   gen_producters("defstandby1", 26, standbys);
+   // Create producers/standbys
+   gen_producters("defproduce1", 21, producers);
    produce_block();
 
    gen_producters("defstandby2", 26, standbys);
    produce_block();
 
+   gen_producters("defstandby3", 26, standbys);
+   produce_block();
+
    produce_block(fc::hours(24));
 
-   for (auto v: voters) {
-      BOOST_TEST_CHECKPOINT("Voter = " << v);
+   // Vote for producers/standbys
+   {
+      // Transfer money and stake it in order to vote
+      for (auto v: voters) {
+         BOOST_TEST_CHECKPOINT("Voter = " << v);
 
-      transfer(config::system_account_name, v, core_sym::from_string("400000000.0000"), config::system_account_name);
-      BOOST_REQUIRE_EQUAL(success(), stake(v, core_sym::from_string( "100000000.0000"), core_sym::from_string("100000000.0000")));
+         transfer(config::system_account_name, v, core_sym::from_string("200000000.0000"), config::system_account_name);
+         BOOST_REQUIRE_EQUAL(success(), stake(v, core_sym::from_string( "100000000.0000"), core_sym::from_string("100000000.0000")));
+      }
+
+      auto print_votes = [this](const prod_vec_t& prods, const std::string& post = std::string{}) {
+         for (const auto& prod: prods)
+            BOOST_TEST_MESSAGE(prod.to_string() << ", votes = " << std::fixed << get_producer_info(prod)["total_votes"].as_double());
+
+         if (post.size() > 0)
+            BOOST_TEST_MESSAGE(post);
+      };
+
+      // Check initial voting conditions (producers)
+      for (const auto& prod: producers) {
+         BOOST_TEST_CHECKPOINT("Producer = " << prod.to_string());
+
+         auto prod_info = get_producer_info(prod);
+         BOOST_REQUIRE_EQUAL(prod.to_string(), prod_info["owner"].as_string());
+         BOOST_REQUIRE_EQUAL(0, prod_info["total_votes"].as_double());
+      }
+
+      // Vote for producers (2 votes for each of them)
+      for (auto v: { "votera", "voterb"}) {
+         BOOST_TEST_CHECKPOINT("Voter = " << v);
+
+         BOOST_REQUIRE_EQUAL(success(), vote(v, producers));
+      }
+
+      print_votes(producers, "\n");
+
+      // Check initial voting conditions (standbys)
+      for (auto i = 0; i < 36; i++) {
+         const auto& stb = standbys[i];
+         BOOST_TEST_CHECKPOINT("Standby(" << i << ") = " << stb.to_string());
+
+         auto stb_info = get_producer_info(stb);
+         BOOST_REQUIRE_EQUAL(stb.to_string(), stb_info["owner"].as_string());
+         BOOST_REQUIRE_EQUAL(0, stb_info["total_votes"].as_double());
+      }
+
+      // Vote for standbys (1 vote for each of them). Cannot vote for more than
+      // 30, that's why the voting was split in 2 phases
+      prod_vec_t filtered; filtered.reserve(30);
+      std::copy(standbys.begin(), standbys.begin() + 30, std::back_inserter(filtered));
+      BOOST_REQUIRE_EQUAL(success(), vote("voterc", filtered));
+
+      filtered.clear();
+      std::copy(standbys.begin() + 30, standbys.begin() + 36, std::back_inserter(filtered));
+      BOOST_REQUIRE_EQUAL(success(), vote("voterd", filtered));
+
+      print_votes(standbys, "\n");
    }
 
-   auto print_votes = [this](const prod_vec_t& prods, const std::string& post = std::string{}) {
-      for (const auto& prod: prods)
-         BOOST_TEST_MESSAGE(prod.to_string() << ", votes = " << std::fixed << get_producer_info(prod)["total_votes"].as_double());
+   // Activate the new feature
+   activaterewd();
 
-      if (post.size() > 0)
-         BOOST_TEST_MESSAGE(post);
-   };
-
-   // Check initial voting conditions (producers)
+   // Validate producer status
    for (const auto& prod: producers) {
       BOOST_TEST_CHECKPOINT("Producer = " << prod.to_string());
 
-      auto prod_info = get_producer_info(prod);
-      BOOST_REQUIRE_EQUAL(prod.to_string(), prod_info["owner"].as_string());
-      BOOST_REQUIRE_EQUAL(0, prod_info["total_votes"].as_double());
+      auto rew_info = get_reward_info(prod);
+      BOOST_REQUIRE_EQUAL(rewProducer, rew_info["current_type"].as_int64());
    }
 
-   // Vote for producers (all voters vote for them)
-   for (auto v: voters) {
-      BOOST_TEST_CHECKPOINT("Voter = " << v);
-
-      BOOST_REQUIRE_EQUAL(success(), vote(v, producers));
-   }
-
-   print_votes(producers, "\n");
-
-   // Check initial voting conditions (standbys)
-   for (auto i = 0; i < 36; i++) {
+   // Validate standby status
+   for (auto i = 0; i < standbys.size(); i++) {
       const auto& stb = standbys[i];
-      BOOST_TEST_CHECKPOINT("Standby(" << i << ") = " << stb.to_string());
+      BOOST_TEST_CHECKPOINT("Standby = " << stb.to_string());
 
-      auto stb_info = get_producer_info(stb);
-      BOOST_REQUIRE_EQUAL(stb.to_string(), stb_info["owner"].as_string());
-      BOOST_REQUIRE_EQUAL(0, stb_info["total_votes"].as_double());
+      auto rew_info = get_reward_info(stb);
+      // No selection yet => none
+      BOOST_REQUIRE_EQUAL(rewNone, rew_info["current_type"].as_int64());
    }
 
-   // Vote for standbys (1 vote for each of them). Cannot vote for more than
-   // 30, that's why the voting was split in 2 phases
-   prod_vec_t filtered; filtered.reserve(30);
-   std::copy(standbys.begin(), standbys.begin() + 30, std::back_inserter(filtered));
-   BOOST_REQUIRE_EQUAL(success(), vote( N(producvotera), filtered));
-
-   filtered.clear();
-   std::copy(standbys.begin() + 30, standbys.begin() + 36, std::back_inserter(filtered));
-   BOOST_REQUIRE_EQUAL(success(), vote( N(producvoterb), filtered));
-
-   print_votes(standbys, "\n");
-
-   // defproducera is the only active producer
-   // produce enough blocks so new schedule kicks in and defproducera produces some blocks
+   // Produce enough blocks to allow standby selections
    {
-      activaterewd();
+      lap_measure lap("Producing block time: ");
+      produce_blocks(15000);
+   }
 
-      {
-         lap_measure lap("Producing block time: ");
-         produce_blocks(1000);
-      }
+   BOOST_TEST_MESSAGE("\nGlobal reward: " << get_global_reward());
 
-      BOOST_TEST_MESSAGE("\nGlobal reward: " << get_global_reward());
-
+   // Validate selections (proportions)
+   {
+      uint64_t prod_sel = 0;
       for (const auto& prod: producers) {
          BOOST_TEST_MESSAGE("\nReward info prod (" << prod.to_string() << "): " << get_reward_info(prod));
-      }
 
-      // Find a standby selection
-      uint64_t num_sel = 0;
+         prod_sel += vo2map(get_reward_info(prod)["counters"])[rewProducer]["selection"].as_uint64();
+      }
+      BOOST_REQUIRE_GT(prod_sel, 0);
+      BOOST_TEST_MESSAGE("\nProducer selection num = " << prod_sel);
+
+      uint64_t stb_sel = 0;
       for (const auto& prod: standbys) {
          BOOST_TEST_MESSAGE("\nReward info stb (" << prod.to_string() << "): " << get_reward_info(prod));
 
-         num_sel += vo2map(get_reward_info(prod)["counters"])[rewStandby]["selection"].as_uint64();
+         stb_sel += vo2map(get_reward_info(prod)["counters"])[rewStandby]["selection"].as_uint64();
       }
+      BOOST_REQUIRE_GT(stb_sel, 0);
+      BOOST_TEST_MESSAGE("\nStandby selection num = " << stb_sel);
 
-      BOOST_TEST_MESSAGE("\nStandby selection num = " << num_sel);
+      // 1% of the time a standby must be selected, check with a confidence of 5%
+      BOOST_REQUIRE_APROX(stb_sel * 100.0 / (stb_sel + prod_sel), 1.0, 0.05);
    }
 
    /// @todo
