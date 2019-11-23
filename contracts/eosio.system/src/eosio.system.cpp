@@ -398,6 +398,7 @@ namespace eosiosystem {
       else {
          // Mark the first 21 ready (with votes and active) as "selected" to produce
          auto idx = _producers.get_index<"prototalvote"_n>();
+         uint64_t i = 0;
 
          for (auto it = idx.cbegin();
               it != idx.cend() && i < 21 && 0 < it->total_votes && it->active();
