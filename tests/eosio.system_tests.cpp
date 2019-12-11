@@ -13,18 +13,19 @@
 
 #include "eosio.system_tester.hpp"
 
-// percent expressed as a float number between 0 and 1
+/// percent expressed as a float number between 0 and 1
+/// @todo Float comparissons can be a problem!
 #define BOOST_REQUIRE_APROX(R, L, percent) \
-   { \
-      if (R == 0.0 || L == 0.0) \
-         BOOST_REQUIRE_EQUAL(R, L); \
-      else { \
+   do { \
+      if (R != 0.0 && L != 0.0) { \
          auto A = std::max(R, L); \
          auto B = std::min(R, L); \
-         if (B / static_cast<double>(A) > percent) \
-            BOOST_FAIL("[" << R << "] !aprox to [" << L << "] (in " << percent * 100 << "%)"); \
+         if ((1 - B / static_cast<double>(A)) > percent) \
+            BOOST_FAIL("[" << (R) << "] !aprox to [" << (L) << "] (in " << percent * 100 << "%)"); \
       } \
-   }
+      else \
+         BOOST_REQUIRE_EQUAL(R, L); \
+   } while (false)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Temporary section
@@ -2688,7 +2689,9 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
    // Produce enough blocks to allow standby selections
    {
       lap_measure lap("Producing block time: ");
-      produce_blocks(15000);
+      //produce_blocks(15000);
+      produce_blocks(100000);
+
    }
 
    BOOST_TEST_MESSAGE("\nGlobal reward: " << get_global_reward());
