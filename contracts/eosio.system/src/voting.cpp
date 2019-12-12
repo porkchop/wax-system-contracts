@@ -216,7 +216,7 @@ namespace eosiosystem {
 
       constexpr uint64_t total_weight = 1'000'000;
       constexpr double   one_percent_weight = total_weight * 0.01;
-      constexpr double   standby_weight = 10 * one_percent_weight / num_standbys;
+      constexpr double   standby_weight = one_percent_weight / num_standbys;
 
       const uint64_t selected_weight = to_int(previous_block_hash) % total_weight;
       const uint64_t standby_index = selected_weight / standby_weight;
