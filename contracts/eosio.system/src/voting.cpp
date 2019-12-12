@@ -214,12 +214,12 @@ namespace eosiosystem {
                                                    const eosio::checksum256& previous_block_hash ) {
       _gstate.last_producer_schedule_update = block_time;
 
-      auto constexpr total_weight = 1'000'000;
-      auto constexpr one_percent_weight = total_weight * 0.01;
-      auto constexpr standby_weight = 10 * one_percent_weight / num_standbys;
+      constexpr uint64_t total_weight = 1'000'000;
+      constexpr double   one_percent_weight = total_weight * 0.01;
+      constexpr double   standby_weight = 10 * one_percent_weight / num_standbys;
 
-      auto const selected_weight = to_int(previous_block_hash) % total_weight;
-      auto const standby_index = selected_weight / standby_weight;
+      const uint64_t selected_weight = to_int(previous_block_hash) % total_weight;
+      const uint64_t standby_index = selected_weight / standby_weight;
 
       prod_vec_t top_producers;
       top_producers.reserve(21);

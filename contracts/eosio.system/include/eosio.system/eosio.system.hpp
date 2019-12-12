@@ -237,13 +237,13 @@ namespace eosiosystem {
 
       const auto& get_counters(reward_type type) const {
          auto it = counters.find(enum_cast(type));
-         check(it != counters.end(), "Invalid reward type");
+         check(it != counters.end(), "Cannot find counter data");
          return it->second;
       }
 
       auto& get_counters(reward_type type) {
          auto it = counters.find(enum_cast(type));
-         check(it != counters.end(), "Invalid reward type");
+         check(it != counters.end(), "Cannot find counter data");
          return it->second;
       }
 
@@ -378,13 +378,13 @@ namespace eosiosystem {
 
       const auto& get_counters(reward_type type) const {
          auto it = counters.find(enum_cast(type));
-         check(it != counters.end(), "Invalid counter data");
+         check(it != counters.end(), "Cannot find counter data");
          return it->second;
       }
 
       auto& get_counters(reward_type type) {
          auto it = counters.find(enum_cast(type));
-         check(it != counters.end(), "Invalid counter data");
+         check(it != counters.end(), "Cannot find counter data");
          return it->second;
       }
 
