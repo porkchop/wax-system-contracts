@@ -2690,34 +2690,38 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
    {
       lap_measure lap("Producing block time: ");
       //produce_blocks(15000);
-      produce_blocks(100000);
-
+      //produce_blocks(100000);
+      produce_blocks(30000);
    }
 
    BOOST_TEST_MESSAGE("\nGlobal reward: " << get_global_reward());
 
-   // Validate selections (proportions)
+   // Validate blocks (proportions)
    {
-      uint64_t prod_sel = 0;
+      uint64_t prod_blocks = 0, prod_none = 0;
       for (const auto& prod: producers) {
          BOOST_TEST_MESSAGE("\nReward info prod (" << prod.to_string() << "): " << get_reward_info(prod));
 
-         prod_sel += vo2map(get_reward_info(prod)["counters"])[rewProducer]["selection"].as_uint64();
+         prod_blocks += vo2map(get_reward_info(prod)["counters"])[rewProducer]["unpaid_blocks"].as_uint64();
+         prod_none += vo2map(get_reward_info(prod)["counters"])[rewNone]["selection"].as_uint64();
       }
-      BOOST_REQUIRE_GT(prod_sel, 0);
-      BOOST_TEST_MESSAGE("\nProducer selection num = " << prod_sel);
 
-      uint64_t stb_sel = 0;
+      BOOST_TEST_MESSAGE("\nProducer unpaid blocks = " << prod_blocks << ", none = " << prod_none);
+      BOOST_REQUIRE_GT(prod_blocks, 0);
+
+      uint64_t stb_blocks = 0, stb_none = 0;
       for (const auto& prod: standbys) {
          BOOST_TEST_MESSAGE("\nReward info stb (" << prod.to_string() << "): " << get_reward_info(prod));
 
-         stb_sel += vo2map(get_reward_info(prod)["counters"])[rewStandby]["selection"].as_uint64();
+         stb_blocks += vo2map(get_reward_info(prod)["counters"])[rewStandby]["unpaid_blocks"].as_uint64();
+         stb_none += vo2map(get_reward_info(prod)["counters"])[rewNone]["selection"].as_uint64();
       }
-      BOOST_REQUIRE_GT(stb_sel, 0);
-      BOOST_TEST_MESSAGE("\nStandby selection num = " << stb_sel);
+
+      BOOST_TEST_MESSAGE("\nStandby unpaid blocks = " << stb_blocks << ", none = " << stb_none);
+      BOOST_REQUIRE_GT(stb_blocks, 0);
 
       // 1% of the time a standby must be selected, check with a confidence of 5%
-      BOOST_REQUIRE_APROX(stb_sel * 100.0 / (stb_sel + prod_sel), 1.0, 0.05);
+      BOOST_REQUIRE_APROX(stb_blocks * 100.0 / (stb_blocks + prod_blocks), 1.0, 0.05);
    }
 
    /// @todo
@@ -6420,3 +6424,84 @@ BOOST_AUTO_TEST_SUITE(reward_specific)
 BOOST_AUTO_TEST_SUITE_END() // reward_specific
 
 BOOST_AUTO_TEST_SUITE_END() // eosio_system_tests
+
+
+uint64_t to_int(const fc::sha256& value) {
+   uint64_t random_int = 0;
+   for (int i = 0; i < 8; i++) {
+      random_int <<= 8;
+      random_int |= value.data()[i] & 127;
+   }
+   return random_int;
+}
+
+
+// uint64_t to_int(const eosio::checksum256& value) {
+//    auto byte_array = value.extract_as_byte_array();
+//
+//    uint64_t int_value = 0;
+//    for (int i = 0; i < 8; i++) {
+//       int_value <<= 8;
+//       int_value |= byte_array[i] & 127;
+//    }
+//    return int_value;
+// }
+
+BOOST_AUTO_TEST_CASE( random_integrity_test ) {
+
+   /*
+    *  constexpr uint64_t total_weight = 1'000'000;
+    *  constexpr double   one_percent_weight = total_weight * 0.01;
+    *  constexpr double   standby_weight = 10 * one_percent_weight / num_standbys;
+    *
+    *  const uint64_t selected_weight = to_int(previous_block_hash) % total_weight;
+    *  const uint64_t standby_index = selected_weight / standby_weight;
+    */
+
+   auto constexpr total_weight       = 1'000'000;
+   auto constexpr one_percent_weight = total_weight * 0.01;
+   auto constexpr num_standbys       = 36;
+   auto constexpr standby_weight     = one_percent_weight / num_standbys;
+
+   auto rnd_index = [](const fc::sha256& hash) -> uint64_t {
+      auto const selected_weight = to_int(hash) % total_weight;
+      auto const standby_index = selected_weight / standby_weight;
+      return standby_index;
+   };
+
+   //auto rnd_value = fc::sha256::hash("initial random value");
+   auto rnd_value = fc::sha256::hash("foofoofoo");
+
+   auto total_cnt = 0;
+   auto prod_cnt = 0;
+   auto stb_cnt = 0;
+
+   auto constexpr max_rounds = 1'000'000;
+
+   uint64_t index = 0;
+
+   // Simulates producer rounds
+   for (auto round = 0; round < max_rounds; round++) {
+      index = rnd_index(rnd_value);
+      rnd_value = fc::sha256::hash(rnd_value);
+
+      if (index < num_standbys) {
+         prod_cnt += 240;
+         stb_cnt += 12;
+      }
+      else {
+         prod_cnt += 252;
+      }
+
+      total_cnt += 252;
+   }
+
+   BOOST_REQUIRE_EQUAL(total_cnt, stb_cnt + prod_cnt);
+
+   BOOST_TEST_MESSAGE(
+      "Total counter = " << total_cnt <<
+      "\nProd.counter =  " << prod_cnt <<
+      "\nStb.counter =   " << stb_cnt <<
+      "\nrate =          " << stb_cnt / static_cast<double>(total_cnt) <<
+      "\npercent =       " << stb_cnt / static_cast<double>(total_cnt) * 100 << "%");
+}
