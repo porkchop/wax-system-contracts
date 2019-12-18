@@ -10,11 +10,13 @@
 #include <eosio.system/native.hpp>
 
 #include <deque>
+#include <limits>
 #include <optional>
 #include <string>
 #include <tuple>
 #include <type_traits>
-
+#include <utility>
+#include <vector>
 
 namespace eosiosystem {
 
@@ -103,6 +105,9 @@ namespace eosiosystem {
       producer = 1,
       standby = 2
    };
+
+   using prod_vec_t = std::vector<std::tuple<eosio::producer_key, uint16_t /* location */, reward_type>>;
+   using top_prod_vec_t = std::vector<std::pair<eosio::name /* owner */, uint32_t /* reward_type */ >>;
 
    /**
     * A name bid.
@@ -219,6 +224,8 @@ namespace eosiosystem {
     * Global counters for producer/standby rewards
     */
    struct [[eosio::table("glbreward"), eosio::contract("eosio.system")]] eosio_global_reward {
+      static constexpr int64_t no_pending_schedule = std::numeric_limits<int64_t>::max();
+
       // A unique name is needed in order to avoid problems with ABI generator
       // which doesn't understand scopes (see rewards_info table)
       struct global_rewards_counter_type {
@@ -228,6 +235,9 @@ namespace eosiosystem {
 
       bool activated = false;  // Producer/standby rewards activated 
       std::map<uint32_t /*reward_type*/, global_rewards_counter_type> counters;
+
+      int64_t proposed_schedule_version = no_pending_schedule;
+      top_prod_vec_t proposed_top_producers;
 
       eosio_global_reward() {
          counters.emplace(enum_cast(reward_type::none), global_rewards_counter_type());
@@ -247,7 +257,7 @@ namespace eosiosystem {
          return it->second;
       }
 
-      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters) )
+      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_schedule_version)(proposed_top_producers))
    };
 
    /**
@@ -1084,9 +1094,8 @@ namespace eosiosystem {
          void update_voter_votepay_share(const voters_table::const_iterator& voter_itr);
 
          // defined in voting.hpp
-         using prod_vec_t = std::vector<std::tuple<eosio::producer_key, uint16_t /* location */, reward_type>>;
+         void update_producer_reward_status(int64_t schedule_version);
 
-         void update_producer_reward_status(const prod_vec_t& top_producers);
          void update_elected_producers( const block_timestamp& timestamp, const eosio::checksum256& previous_block_hash);
          void update_votes( const name& voter, const name& proxy, const std::vector<name>& producers, bool voting );
          void propagate_weight_change( const voter_info& voter );
