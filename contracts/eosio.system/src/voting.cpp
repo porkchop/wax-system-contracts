@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 
 namespace {
    uint64_t to_int(const eosio::checksum256& value) {
@@ -111,6 +112,27 @@ namespace eosiosystem {
       });
    }
 
+   /**
+    * Returns true when the percent (in the last 24 hours) of standby produced
+    * blocks is less than 1% otherwise returns false
+    */
+   bool system_contract::is_it_time_to_select_a_standby() const {
+      auto& stb_cnt = _greward.get_counters(reward_type::standby);
+      auto& pro_cnt = _greward.get_counters(reward_type::producer);
+
+      uint64_t stb_total = std::accumulate(
+         stb_cnt.unpaid_blocks_per_hour.begin(), stb_cnt.unpaid_blocks_per_hour.end(), 0);
+
+      uint64_t total = stb_total + std::accumulate(
+         pro_cnt.unpaid_blocks_per_hour.begin(), pro_cnt.unpaid_blocks_per_hour.end(), 0);
+
+      if (total > 0) {
+         double percent = 100.0 * stb_total / total;
+         return percent < 1.0;
+      }
+
+      return false;
+   }
 
    /**
     * Updates the reward status of all producers (including those that are not top producers)
@@ -191,30 +213,23 @@ namespace eosiosystem {
                                                    const eosio::checksum256& previous_block_hash ) {
       _gstate.last_producer_schedule_update = block_time;
 
-      constexpr uint64_t total_weight = 1'000'000;
-      constexpr double   one_percent_weight = total_weight * 0.01;
-      constexpr double   standby_weight = 21 * one_percent_weight / max_standbys;
-
-      const uint64_t selected_weight = to_int(previous_block_hash) % total_weight;
-      const uint64_t standby_index = selected_weight / standby_weight;
-
       prod_vec_t top_producers;
       top_producers.reserve(21);
 
-      // Is it time to select a standby to produce blocks?
-      if (standby_index < max_standbys) {
+      if (is_it_time_to_select_a_standby()) {
          prod_vec_t standbys; standbys.reserve(max_standbys);
 
          // Pick the current 36 standbys
          select_producers_into(21, max_standbys, reward_type::standby, standbys);
 
+         const uint64_t standby_index = to_int(previous_block_hash) % max_standbys;
+
          if (standbys.size() > standby_index) {
             // Add the selected standby as an elected top producer
             top_producers.emplace_back(standbys[standby_index]);
 
-            /// @todo print_f is not working well, check it
-            //eosio::print_f("Selected standby producer: %\n",
-            //   std::get<0>(standbys[standby_index]).producer_name.to_string());
+            eosio::print_f("Selected standby producer: %\n",
+               std::get<0>(standbys[standby_index]).producer_name.to_string());
          }
       }
 
