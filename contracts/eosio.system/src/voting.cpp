@@ -255,7 +255,6 @@ namespace eosiosystem {
 
       // Proposes a new list
       if (auto version = set_proposed_producers(producers); version.has_value()) {
-
          if (auto it = _greward.proposed_top_producers.find(*version); it != _greward.proposed_top_producers.end())
             return;
 
