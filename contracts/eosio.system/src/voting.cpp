@@ -138,8 +138,10 @@ namespace eosiosystem {
     * Updates the reward status of all producers (including those that are not top producers)
     */
    void system_contract::update_producer_reward_status(int64_t schedule_version) {
-      // Is there a pendint new list of producers?
-      if (schedule_version != _greward.proposed_schedule_version)
+      auto it_ver = _greward.proposed_top_producers.find(schedule_version);
+
+      if (it_ver == _greward.proposed_top_producers.end())
+         // "status" by version was already applied, nothing to do
          return;
 
       auto comp = [](const top_prod_vec_t::value_type& prod, const name& owner) {
@@ -153,17 +155,17 @@ namespace eosiosystem {
       for (auto prod: _producers) {
          if (prod.is_active) {
             auto first_it = std::lower_bound(
-               _greward.proposed_top_producers.begin(),
-               _greward.proposed_top_producers.end(),
+               it_ver->second.begin(),
+               it_ver->second.end(),
                prod.owner,
                comp);
 
             auto prod_it =
-               first_it != _greward.proposed_top_producers.end() && !comp_rev(prod.owner, *first_it)
+               first_it != it_ver->second.end() && !comp_rev(prod.owner, *first_it)
                   ? first_it
-                  : _greward.proposed_top_producers.end();
+                  : it_ver->second.end();
 
-            if (prod_it != _greward.proposed_top_producers.end()) {
+            if (prod_it != it_ver->second.end()) {
                const auto& [ prod_name, type ] = *prod_it;
 
                if (auto reward_it = _rewards.find(prod_name.value); reward_it != _rewards.end()) {
@@ -184,8 +186,8 @@ namespace eosiosystem {
          }
       }
 
-      _greward.proposed_schedule_version =
-         eosiosystem::eosio_global_reward::no_pending_schedule;
+      // Top producer status applied, remove information
+      _greward.proposed_top_producers.erase(it_ver);
    }
 
    /**
@@ -228,8 +230,9 @@ namespace eosiosystem {
             // Add the selected standby as an elected top producer
             top_producers.emplace_back(standbys[standby_index]);
 
-            eosio::print_f("Selected standby producer: %\n",
-               std::get<0>(standbys[standby_index]).producer_name.to_string());
+            /// @todo The following print statement isn't working. Check it.
+            //eosio::print_f("Selected standby producer: %\n",
+            //   std::get<0>(standbys[standby_index]).producer_name.to_string());
          }
       }
 
@@ -251,23 +254,25 @@ namespace eosiosystem {
          producers.push_back(std::get<0>(item));
 
       // Proposes a new list
-      if (auto version = set_proposed_producers(producers); version >= 0) {
-         if (_greward.proposed_schedule_version != eosiosystem::eosio_global_reward::no_pending_schedule) {
-            /// @todo Proposed schedule will be overwritten
+      if (auto version = set_proposed_producers(producers); version.has_value()) {
+
+         if (auto it = _greward.proposed_top_producers.find(*version); it != _greward.proposed_top_producers.end())
             return;
-         }
 
-         _greward.proposed_schedule_version = *version;
-         _greward.proposed_top_producers.clear();
+         top_prod_vec_t new_top_producers;
+         new_top_producers.reserve(21);
 
+         // Map 'top_producers' to 'new_top_producers'
          using namespace std;
          transform(
             top_producers.begin(),
             top_producers.end(),
-            back_inserter(_greward.proposed_top_producers),
+            back_inserter(new_top_producers),
             [](const auto& prod_tuple) {
                return pair(get<0>(prod_tuple).producer_name, enum_cast(get<2>(prod_tuple)));
             });
+
+         _greward.proposed_top_producers.emplace(*version, new_top_producers);
       }
    }
 

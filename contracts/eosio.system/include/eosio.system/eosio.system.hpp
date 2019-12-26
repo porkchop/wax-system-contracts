@@ -224,8 +224,6 @@ namespace eosiosystem {
     * Global counters for producer/standby rewards
     */
    struct [[eosio::table("glbreward"), eosio::contract("eosio.system")]] eosio_global_reward {
-      static constexpr uint64_t no_pending_schedule = std::numeric_limits<uint64_t>::max();
-
       // A unique name is needed in order to avoid problems with ABI generator
       // which doesn't understand scopes (see rewards_info table)
       struct global_rewards_counter_type {
@@ -236,9 +234,7 @@ namespace eosiosystem {
 
       bool activated = false;  // Producer/standby rewards activated 
       std::map<uint32_t /*reward_type*/, global_rewards_counter_type> counters;
-
-      uint64_t proposed_schedule_version = no_pending_schedule;
-      top_prod_vec_t proposed_top_producers;
+      std::map<uint64_t /*version*/,     top_prod_vec_t> proposed_top_producers;
 
       uint8_t current_hour = 0;
 
@@ -284,7 +280,7 @@ namespace eosiosystem {
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_schedule_version)(proposed_top_producers)(current_hour))
+      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_hour))
    };
 
    /**
