@@ -171,7 +171,7 @@ namespace eosiosystem {
       block_timestamp      last_producer_schedule_update;
       time_point           last_pervote_bucket_fill;
       int64_t              pervote_bucket = 0;
-      int64_t              perblock_bucket = 0;
+      int64_t              perblock_bucket = 0; /// @deprecated Deprecated once standby reward will be activated. See eosio_global_reward
       int64_t              voters_bucket = 0;
       double               total_voteshare_change_rate = 0;
       double               total_unpaid_voteshare = 0;   // Common fund to pay voters.
@@ -292,7 +292,7 @@ namespace eosiosystem {
       eosio::public_key     producer_key; /// a packed public key object
       bool                  is_active = true;
       std::string           url;
-      uint32_t              unpaid_blocks = 0;  /// @todo Possibly deprecated in future version due to standby rewards, see voter_info table
+      uint32_t              unpaid_blocks = 0;  /// @deprecated Deprecated once standby reward will be activated. See reward_info table
       time_point            last_claim_time;
       uint16_t              location = 0;
 
