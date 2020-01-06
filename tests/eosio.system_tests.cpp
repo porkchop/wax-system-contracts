@@ -2893,7 +2893,7 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
       validate_rewards("defproduce1u");
       validate_rewards(some_standby);
 
-      /// @todo A producer that produced blocks as a producer and as a standby
+      /// @todo A producer that produces blocks as a producer and as a standby
    }
 
 } FC_LOG_AND_RETHROW()
