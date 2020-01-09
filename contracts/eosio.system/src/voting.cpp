@@ -6,6 +6,7 @@
 #include <eosio/serialize.hpp>
 #include <eosio/singleton.hpp>
 
+#include <eosio.system/debug_print.hpp>
 #include <eosio.system/eosio.system.hpp>
 #include <eosio.token/eosio.token.hpp>
 
@@ -186,15 +187,12 @@ namespace eosiosystem {
          }
       }
 
-      // Top producer status applied, remove information
-      _greward.proposed_top_producers.erase(it_ver);
-
-      // In the odd case that we skip a version, erase previous adjacent versions
-      it_ver = _greward.proposed_top_producers.find(--schedule_version);
-      while( schedule_version >= 0 && it_ver != _greward.proposed_top_producers.end() ) {
+      do {
+        // Top producer status applied, remove information
         _greward.proposed_top_producers.erase(it_ver);
-        it_ver = _greward.proposed_top_producers.find(--schedule_version);
+        // In the odd case that we skip a version, erase previous adjacent versions...
       }
+      while (--schedule_version >= 0 && (it_ver = _greward.proposed_top_producers.find(schedule_version)) != _greward.proposed_top_producers.end());
    }
 
    /**
