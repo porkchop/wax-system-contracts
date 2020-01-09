@@ -6,7 +6,6 @@
 #include <eosio/serialize.hpp>
 #include <eosio/singleton.hpp>
 
-#include <eosio.system/debug_print.hpp>
 #include <eosio.system/eosio.system.hpp>
 #include <eosio.token/eosio.token.hpp>
 
