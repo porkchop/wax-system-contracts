@@ -2655,8 +2655,8 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
 
    // Produce enough blocks to allow standby selections
    {
-      produce_blocks(5000);
-      //produce_blocks(100000);
+      produce_blocks(8000);
+      // produce_blocks(100000);
       //produce_blocks(30000);
    }
 

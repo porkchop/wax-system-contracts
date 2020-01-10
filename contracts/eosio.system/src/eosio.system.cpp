@@ -392,6 +392,7 @@ namespace eosiosystem {
                _rewards.modify(it, same_payer, [&](reward_info& info) {
                   info.set_current_type(reward_type::producer);
                });
+               _greward.current_producers.emplace_back(top_prod_vec_t::value_type{producer.owner, enum_cast(reward_type::producer)});
             }
          }
       }
@@ -408,6 +409,7 @@ namespace eosiosystem {
                _rewards.modify(it_rwd, same_payer, [&](reward_info& info) {
                   info.set_current_type(reward_type::producer);
                });
+               _greward.current_producers.emplace_back(top_prod_vec_t::value_type{it->owner, enum_cast(reward_type::producer)});
             }
          }
 
