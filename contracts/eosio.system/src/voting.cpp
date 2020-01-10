@@ -144,7 +144,7 @@ namespace eosiosystem {
          // "status" by version was already applied, nothing to do
          return;
 
-      for(auto old_top_prod: _greward.current_producers) {
+      for(const auto& old_top_prod: _greward.current_producers) {
          if (auto reward_it = _rewards.find(old_top_prod.first.value); reward_it != _rewards.end()) {
             _rewards.modify(reward_it, same_payer, [&](auto& rec) {
                rec.set_current_type(reward_type::none);
@@ -152,7 +152,7 @@ namespace eosiosystem {
          }
       }
 
-      for(auto new_top_prod: it_ver->second) {
+      for(const auto& new_top_prod: it_ver->second) {
          if (auto reward_it = _rewards.find(new_top_prod.first.value); reward_it != _rewards.end()) {
             _rewards.modify(reward_it, same_payer, [&](auto& rec) {
                rec.current_type = new_top_prod.second; // raw uint32 type
