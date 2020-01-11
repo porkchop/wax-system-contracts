@@ -385,10 +385,9 @@ namespace eosiosystem {
       }
 
       // If we only have 21 producers or less they are ready to produce
-      /// @todo It's necessary to check for "active" producers (?)
       if (std::distance(_producers.cbegin(), _producers.cend()) <= 21) {
          for (const auto& producer: _producers) {
-            if (auto it = _rewards.find(producer.owner.value); it != _rewards.end()) {
+            if (auto it = _rewards.find(producer.owner.value); producer.active() && it != _rewards.end()) {
                _rewards.modify(it, same_payer, [&](reward_info& info) {
                   info.set_current_type(reward_type::producer);
                });
