@@ -37,7 +37,7 @@ After build:
 * Finally, simply use __cleos__ to _set contract_ by pointing to the previously mentioned directory.
 
 Misc:
-* Run a single test: `make compile && ./build/tests/unit_test --log_level=all --run_test=eosio_system_tests/producer_standby_pay_reward`
+* Run a single test: `make compile && ./build/tests/unit_test --log_level=all --run_test=eosio_system_tests/producers_upgrade_system_contract`
 
 ### License
 [MIT](https://github.com/worldwide-asset-exchange/wax-eos-contracts/blob/master/LICENSE)

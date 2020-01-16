@@ -74,6 +74,7 @@ namespace eosiosystem {
    static constexpr uint32_t max_standbys          = 36;
    static constexpr double   producer_perc_reward  = 0.60;
    static constexpr double   standby_perc_reward   = 1 - producer_perc_reward;
+   static constexpr uint64_t block_accuracy_sample_size = 3 * 24 * 60 * 2; // 3 hours worth of blocks for sampling block production accuracy
 
    static constexpr uint64_t useconds_in_gbm_period = 1096 * useconds_per_day;   // from July 1st 2019 to July 1st 2022
    static const time_point gbm_initial_time(eosio::seconds(1561939200));     // July 1st 2019 00:00:00
@@ -238,6 +239,9 @@ namespace eosiosystem {
       std::map<uint64_t /*version*/,     top_prod_vec_t> proposed_top_producers;
       top_prod_vec_t current_producers;
 
+      double block_production_accuracy;
+      block_timestamp last_onblock;
+
       uint8_t current_hour = 0;
 
       eosio_global_reward() {
@@ -282,7 +286,7 @@ namespace eosiosystem {
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(current_hour))
+      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(block_production_accuracy)(last_onblock)(current_hour))
    };
 
    /**
@@ -1111,6 +1115,9 @@ namespace eosiosystem {
 
          // defined in voting.hpp
          void update_producer_reward_status(int64_t schedule_version);
+
+         // defined in voting.hpp
+         void update_block_production_accuracy(block_timestamp block_time);
 
          void update_elected_producers( const block_timestamp& timestamp, const eosio::checksum256& previous_block_hash);
          void update_votes( const name& voter, const name& proxy, const std::vector<name>& producers, bool voting );

@@ -9,6 +9,8 @@
 #include <eosio.system/eosio.system.hpp>
 #include <eosio.token/eosio.token.hpp>
 
+#include <eosio.system/debug_print.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -153,6 +155,23 @@ namespace eosiosystem {
         // In the odd case that we skip a version, erase previous adjacent versions...
       }
       while (--schedule_version >= 0 && (it_ver = _greward.proposed_top_producers.find(schedule_version)) != _greward.proposed_top_producers.end());
+   }
+
+   /**
+    * Updates the block production accuracy
+    */
+   void system_contract::update_block_production_accuracy(block_timestamp block_time) {
+     if( _greward.last_onblock == block_timestamp() ) {
+       _greward.last_onblock = block_time;
+       _greward.block_production_accuracy = block_accuracy_sample_size;
+       debug::print("Initialize accuracy %\n", _greward.block_production_accuracy);
+     } else {
+       auto initial = _greward.block_production_accuracy;
+       uint64_t blocks_since_last_update = block_time.slot - _greward.last_onblock.slot;
+       _greward.last_onblock = block_time;
+       _greward.block_production_accuracy = 1 + _greward.block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
+       debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, block_time %\n", initial, _greward.block_production_accuracy, blocks_since_last_update, block_time.slot);
+     }
    }
 
    /**
@@ -408,6 +427,11 @@ namespace eosiosystem {
       double unpaid_voteshare = voter.unpaid_voteshare + voter.unpaid_voteshare_change_rate * double((ct - voter.unpaid_voteshare_last_updated).count() / 1E6);
 
       int64_t reward = _gstate.voters_bucket * (unpaid_voteshare / _gstate.total_unpaid_voteshare);
+      if (_greward.activated) {
+        debug::print("Initial reward %\n", reward);
+        reward *= _greward.block_production_accuracy / block_accuracy_sample_size;
+        debug::print("Final reward %, accuracy %\n", reward, _greward.block_production_accuracy);
+      }
       check(reward > 0, "no rewards available.");
 
       if (reward > _gstate.voters_bucket) {
@@ -441,7 +465,7 @@ namespace eosiosystem {
          _gstate.total_unpaid_voteshare += _gstate.total_voteshare_change_rate * double((ct - _gstate.total_unpaid_voteshare_last_updated).count() / 1E6);
       }
 
-      eosio::print("Calculating _gstate.total_voteshare_change_rate: ", change_rate_delta);
+      eosio::print("Calculating _gstate.total_voteshare_change_rate: \n", change_rate_delta);
       _gstate.total_voteshare_change_rate += change_rate_delta;
       _gstate.total_unpaid_voteshare_last_updated = ct;
 

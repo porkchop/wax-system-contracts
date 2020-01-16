@@ -1,5 +1,6 @@
 #include <eosio.system/eosio.system.hpp>
 #include <eosio.token/eosio.token.hpp>
+#include <eosio.system/debug_print.hpp>
 
 namespace eosiosystem {
    
@@ -41,6 +42,7 @@ namespace eosiosystem {
          _ds >> ignored2 >> ignored2 >> schedule_version;
 
          update_producer_reward_status(schedule_version);
+         update_block_production_accuracy(timestamp);
 
          // Counts blocks according to producer type
          if (auto it = _rewards.find( producer.value ); it != _rewards.end() ) {
