@@ -387,7 +387,8 @@ namespace eosiosystem {
       struct reward_info_counter_type {
          uint64_t unpaid_blocks = 0;  // # of blocks produced
 
-         /// @todo Add other counters here
+         double block_production_accuracy;
+         block_timestamp boundary_block;
       };
 
       name                                         owner;
@@ -410,6 +411,7 @@ namespace eosiosystem {
 
       void set_current_type(reward_type rhs) {
          current_type = enum_cast(rhs);
+         //TODO: actually track accuracy info here - block time, and accuracy should be moved here rather than the switch function sketched below
       }
 
       auto get_current_type() const {
@@ -431,6 +433,38 @@ namespace eosiosystem {
       void reset_counters() {
          for (auto& counter: counters)
             counter.second.unpaid_blocks = 0;
+      }
+      
+      void update_producer_status(reward_type type, block_timestamp block_time) {
+        
+      }
+
+      void update_block_production_accuracy(reward_type type, block_timestamp block_time) {
+        auto counter = get_counters(type);
+        if( counter.boundary_block == block_timestamp() ) {
+          counter.boundary_block = block_time;
+          _greward.block_production_accuracy = block_accuracy_sample_size;
+          debug::print("Initialize accuracy %\n", _greward.block_production_accuracy);
+        }
+        switch(type) {
+          case reward_type::producer:
+            break;
+          case reward_type::standby:
+            break;
+          case reward_type::none:
+            // umm probably should not have happened
+        }
+        if( _greward.last_onblock == block_timestamp() ) {
+          _greward.last_onblock = block_time;
+          _greward.block_production_accuracy = block_accuracy_sample_size;
+          debug::print("Initialize accuracy %\n", _greward.block_production_accuracy);
+        } else {
+          auto initial = _greward.block_production_accuracy;
+          uint64_t blocks_since_last_update = block_time.slot - _greward.last_onblock.slot;
+          _greward.last_onblock = block_time;
+          _greward.block_production_accuracy = 1 + _greward.block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
+          debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, block_time %\n", initial, _greward.block_production_accuracy, blocks_since_last_update, block_time.slot);
+        }
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
