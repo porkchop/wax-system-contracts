@@ -14,11 +14,9 @@ namespace eosiosystem {
     _voters(get_self(), get_self().value),
     _wpsvoters(get_self(), get_self().value),
     _producers(get_self(), get_self().value),
-    _producers2(get_self(), get_self().value),
     _rewards(get_self(), get_self().value),
     _global(get_self(), get_self().value),
     _global2(get_self(), get_self().value),
-    _global3(get_self(), get_self().value),
     _globalreward(get_self(), get_self().value),
     _rammarket(get_self(), get_self().value),
     _proposers(get_self(), get_self().value),
@@ -29,7 +27,6 @@ namespace eosiosystem {
       //print( "construct system\n" );
       _gstate  = _global.exists() ? _global.get() : get_default_parameters();
       _gstate2 = _global2.exists() ? _global2.get() : eosio_global_state2{};
-      _gstate3 = _global3.exists() ? _global3.get() : eosio_global_state3{};
       _greward = _globalreward.exists() ? _globalreward.get() : eosio_global_reward{};
    }
 
@@ -47,7 +44,6 @@ namespace eosiosystem {
    system_contract::~system_contract() {
       _global.set( _gstate, get_self() );
       _global2.set( _gstate2, get_self() );
-      _global3.set( _gstate3, get_self() );
       _globalreward.set( _greward, get_self() );
    }
 
