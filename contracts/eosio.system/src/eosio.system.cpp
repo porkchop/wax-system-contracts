@@ -367,6 +367,8 @@ namespace eosiosystem {
    void system_contract::activaterewd() {
       require_auth( get_self() );
 
+      // TODO: use _gstate2.last_block_num to initialize the boundary_window for active producers - need to figure out who the active producers are or can we just let the natural logic initialize itslef and forget about aggressive initialization here?
+
       check(!_greward.activated, "Standby rewards feature already activated");
 
       auto& prod_counters = _greward.get_counters(reward_type::producer);

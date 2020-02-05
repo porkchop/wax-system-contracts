@@ -1,5 +1,6 @@
 #include <eosio.system/eosio.system.hpp>
 #include <eosio.token/eosio.token.hpp>
+#include <eosio.system/debug_print.hpp>
 
 namespace eosiosystem {
    
@@ -17,10 +18,9 @@ namespace eosiosystem {
 
       _ds >> timestamp >> producer;
 
-      // _gstate2.last_block_num is not used anywhere in the system contract code anymore.
-      // Although this field is deprecated, we will continue updating it for now until the last_block_num field
-      // is eventually completely removed, at which point this line can be removed.
       _gstate2.last_block_num = timestamp;
+
+      debug::print("block_time %\n", timestamp.slot);
 
       /** until activated stake crosses this threshold no new rewards are paid */
       if( _gstate.total_activated_stake < min_activated_stake )
@@ -33,7 +33,7 @@ namespace eosiosystem {
       checksum256 previous;
 
       _ds >> ignored1 >> previous;
-
+      
       if (_greward.activated) {
          checksum256 ignored2;
          uint32_t schedule_version;
