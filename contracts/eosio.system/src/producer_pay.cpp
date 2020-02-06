@@ -47,7 +47,7 @@ namespace eosiosystem {
             _greward.new_unpaid_block(it->get_current_type(), timestamp);
 
             _rewards.modify( it, same_payer, [&](auto& rec ) {
-               rec.get_counters(it->get_current_type()).unpaid_blocks++;
+               rec.get_counters(it->get_current_type()).track_block(timestamp);
             });
          }
       }

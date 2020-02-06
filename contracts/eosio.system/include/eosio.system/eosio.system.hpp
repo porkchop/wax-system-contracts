@@ -9,6 +9,8 @@
 #include <eosio.system/exchange_state.hpp>
 #include <eosio.system/native.hpp>
 
+#include <eosio.system/debug_print.hpp>
+
 #include <deque>
 #include <limits>
 #include <optional>
@@ -17,6 +19,8 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <cmath>
+
 
 namespace eosiosystem {
 
@@ -77,7 +81,7 @@ namespace eosiosystem {
    static constexpr uint32_t max_standbys          = 36;
    static constexpr double   producer_perc_reward  = 0.60;
    static constexpr double   standby_perc_reward   = 1 - producer_perc_reward;
-   static constexpr uint64_t block_accuracy_sample_size = 3 * 24 * 60 * 60 * 2; // 3 days worth of blocks for sampling block production accuracy
+   static constexpr uint32_t block_accuracy_sample_size = 3 * 24 * 60 * 60 * 2; // 3 days worth of blocks for sampling block production accuracy
 
    static constexpr uint64_t useconds_in_gbm_period = 1096 * useconds_per_day;   // from July 1st 2019 to July 1st 2022
    static const time_point gbm_initial_time(eosio::seconds(1561939200));     // July 1st 2019 00:00:00
@@ -283,12 +287,6 @@ namespace eosiosystem {
          }
          else
             counters.unpaid_blocks_per_hour[hour]++;
-         
-         auto initial = counters.block_production_accuracy;
-         uint64_t blocks_since_last_update = std::min(tm.slot - counters.boundary_block.slot, block_accuracy_sample_size);
-         counters.boundary_block = tm;
-         counters.block_production_accuracy = 1 + counters.block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
-         debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, tm %\n", initial, counters.block_production_accuracy, blocks_since_last_update, tm.slot);
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
@@ -523,6 +521,15 @@ namespace eosiosystem {
          double block_production_accuracy = 0;
          block_timestamp boundary_block;
          uint64_t selections = 0;  // # of times selected
+
+         void track_block(block_timestamp block_time) {
+           unpaid_blocks++;
+           auto initial = block_production_accuracy;
+           uint32_t blocks_since_last_update = std::min(block_time.slot - boundary_block.slot, block_accuracy_sample_size);
+           boundary_block = block_time;
+           block_production_accuracy = 1 + block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
+           debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, block_time %\n", initial, block_production_accuracy, blocks_since_last_update, block_time.slot);
+         }
       };
 
       name                                         owner;
@@ -567,34 +574,6 @@ namespace eosiosystem {
          for (auto& counter: counters)
             counter.second.unpaid_blocks = 0;
       }
-
-      // void update_block_production_accuracy(reward_type type, block_timestamp block_time) {
-      //   auto counter = get_counters(type);
-      //   if( counter.boundary_block == block_timestamp() ) {
-      //     counter.boundary_block = block_time;
-      //     _greward.block_production_accuracy = block_accuracy_sample_size;
-      //     debug::print("Initialize accuracy %\n", _greward.block_production_accuracy);
-      //   }
-      //   switch(type) {
-      //     case reward_type::producer:
-      //       break;
-      //     case reward_type::standby:
-      //       break;
-      //     case reward_type::none:
-      //       // umm probably should not have happened
-      //   }
-      //   if( _greward.last_onblock == block_timestamp() ) {
-      //     _greward.last_onblock = block_time;
-      //     _greward.block_production_accuracy = block_accuracy_sample_size;
-      //     debug::print("Initialize accuracy %\n", _greward.block_production_accuracy);
-      //   } else {
-      //     auto initial = _greward.block_production_accuracy;
-      //     uint64_t blocks_since_last_update = block_time.slot - _greward.last_onblock.slot;
-      //     _greward.last_onblock = block_time;
-      //     _greward.block_production_accuracy = 1 + _greward.block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
-      //     debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, block_time %\n", initial, _greward.block_production_accuracy, blocks_since_last_update, block_time.slot);
-      //   }
-      // }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
       EOSLIB_SERIALIZE( reward_info, (owner)(current_type)(counters) )
