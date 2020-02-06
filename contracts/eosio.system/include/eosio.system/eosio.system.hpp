@@ -283,6 +283,12 @@ namespace eosiosystem {
          }
          else
             counters.unpaid_blocks_per_hour[hour]++;
+         
+         auto initial = counters.block_production_accuracy;
+         uint64_t blocks_since_last_update = std::min(tm.slot - counters.boundary_block.slot, block_accuracy_sample_size);
+         counters.boundary_block = tm;
+         counters.block_production_accuracy = 1 + counters.block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
+         debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, tm %\n", initial, counters.block_production_accuracy, blocks_since_last_update, tm.slot);
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
@@ -514,7 +520,7 @@ namespace eosiosystem {
       struct reward_info_counter_type {
          uint64_t unpaid_blocks = 0;  // # of blocks produced
 
-         double block_production_accuracy;
+         double block_production_accuracy = 0;
          block_timestamp boundary_block;
          uint64_t selections = 0;  // # of times selected
       };
@@ -539,20 +545,6 @@ namespace eosiosystem {
 
       void set_current_type(reward_type rhs) {
          current_type = enum_cast(rhs);
-
-         // auto block_time = _gstate2.last_block_num;
-         // auto counter = get_counters(type);
-         // if( counter.boundary_block == block_timestamp() ) {
-         //   counter.boundary_block = block_time;
-         //   counter.block_production_accuracy = block_accuracy_sample_size;
-         //   debug::print("Initialize accuracy %\n", counter.block_production_accuracy);
-         // } else {
-         //   auto initial = counter.block_production_accuracy;
-         //   uint64_t blocks_since_last_update = block_time.slot - counter.boundary_block.slot;
-         //   counter.boundary_block = block_time;
-         //   counter.block_production_accuracy = 1 + counter.block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
-         //   debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, block_time %\n", initial, counter.block_production_accuracy, blocks_since_last_update, block_time.slot);
-         // }
       }
 
       auto get_current_type() const {
