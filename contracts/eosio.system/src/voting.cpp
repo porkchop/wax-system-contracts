@@ -189,7 +189,7 @@ namespace eosiosystem {
          eosio::print("No top producers or they are less than the last scheduled");
          return;
       }
-      
+
       if (is_it_time_to_select_a_standby()) {
          prod_vec_t standbys; standbys.reserve(max_standbys);
 
@@ -444,7 +444,7 @@ namespace eosiosystem {
        }
      }
 
-     return -1;
+     return -1.;
    }
 
    double system_contract::calculate_producers_performance( const voter_info& voter ) {
@@ -479,7 +479,7 @@ namespace eosiosystem {
        return performance;
      }
 
-     return 1;
+     return 1.;
    }
 
    void system_contract::update_voter_votepay_share(const voters_table::const_iterator& voter_itr) {
