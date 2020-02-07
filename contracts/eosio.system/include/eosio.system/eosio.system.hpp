@@ -19,7 +19,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-#include <cmath>
 
 
 namespace eosiosystem {
@@ -82,6 +81,8 @@ namespace eosiosystem {
    static constexpr double   producer_perc_reward  = 0.60;
    static constexpr double   standby_perc_reward   = 1 - producer_perc_reward;
    static constexpr uint32_t block_accuracy_sample_size = 3 * 24 * 60 * 60 * 2; // 3 days worth of blocks for sampling block production accuracy
+   static constexpr uint32_t num_performance_producers = 16;
+   static constexpr uint32_t performances_sum_sample_size = 1000;
 
    static constexpr uint64_t useconds_in_gbm_period = 1096 * useconds_per_day;   // from July 1st 2019 to July 1st 2022
    static const time_point gbm_initial_time(eosio::seconds(1561939200));     // July 1st 2019 00:00:00
@@ -248,6 +249,15 @@ namespace eosiosystem {
 
       uint8_t current_hour = 0;
 
+      double performances_sum = performances_sum_sample_size * 0.5;
+      void update_performance(double new_performance) {
+        performances_sum += new_performance - performances_sum / performances_sum_sample_size;
+      }
+
+      const double average_producers_performance() const {
+        return performances_sum / performances_sum_sample_size;
+      }
+
       eosio_global_reward() {
          for (auto type: { reward_type::none, reward_type::producer, reward_type::standby }) {
             counters.emplace(enum_cast(type), global_rewards_counter_type());
@@ -290,7 +300,7 @@ namespace eosiosystem {
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(current_hour))
+      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(current_hour)(performances_sum))
    };
 
    /**
@@ -518,17 +528,24 @@ namespace eosiosystem {
       struct reward_info_counter_type {
          uint64_t unpaid_blocks = 0;  // # of blocks produced
 
-         double block_production_accuracy = 0;
-         block_timestamp boundary_block;
-         uint64_t selections = 0;  // # of times selected
+         uint64_t performance_blocks = 0;
+         block_timestamp performance_start_block;
+
+         uint64_t previous_performance_blocks = 0;
+         block_timestamp previous_performance_start_block;
 
          void track_block(block_timestamp block_time) {
            unpaid_blocks++;
-           auto initial = block_production_accuracy;
-           uint32_t blocks_since_last_update = std::min(block_time.slot - boundary_block.slot, block_accuracy_sample_size);
-           boundary_block = block_time;
-           block_production_accuracy = 1 + block_production_accuracy * std::pow(1. - 1. / block_accuracy_sample_size, blocks_since_last_update);
-           debug::print("Initial accuracy % Final accuracy %, blocks_since_last_update %, block_time %\n", initial, block_production_accuracy, blocks_since_last_update, block_time.slot);
+
+           if(block_time.slot - performance_start_block.slot <= block_accuracy_sample_size) {
+             performance_blocks++;
+           } else {
+             previous_performance_blocks = performance_blocks;
+             previous_performance_start_block = performance_start_block;
+             performance_start_block = block_time;
+             performance_blocks = 1;
+           }
+           // debug::print("unpaid_blocks %, performance_blocks %, previous_performance_blocks %\n", unpaid_blocks, performance_blocks, previous_performance_blocks);
          }
       };
 
@@ -1393,6 +1410,8 @@ namespace eosiosystem {
 
          void select_producers_into( uint64_t begin, uint64_t count, reward_type type, prod_vec_t& result );
          bool is_it_time_to_select_a_standby() const;
+         double calculate_producers_performance( const voter_info& voter );
+         double single_producer_performance( const reward_info& rewards ) const;
 
          template <auto system_contract::*...Ptrs>
          class registration {

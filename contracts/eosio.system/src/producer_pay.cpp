@@ -20,8 +20,6 @@ namespace eosiosystem {
 
       _gstate2.last_block_num = timestamp;
 
-      debug::print("block_time %\n", timestamp.slot);
-
       /** until activated stake crosses this threshold no new rewards are paid */
       if( _gstate.total_activated_stake < min_activated_stake )
          return;
@@ -33,7 +31,7 @@ namespace eosiosystem {
       checksum256 previous;
 
       _ds >> ignored1 >> previous;
-      
+
       if (_greward.activated) {
          checksum256 ignored2;
          uint32_t schedule_version;

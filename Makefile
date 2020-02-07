@@ -1,5 +1,6 @@
 CMAKE_CPU_SETUP := $(shell expr $(shell nproc) + 2)
 
+# DEV_DOCKER_VERSION=wax-1.6.1-1.2.1
 DEV_DOCKER_VERSION=wax-1.6.1-1.2.0-internal2
 CONTAINER=wax-system-contracts
 

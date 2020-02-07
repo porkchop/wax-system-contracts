@@ -3539,6 +3539,17 @@ BOOST_FIXTURE_TEST_CASE(producer_onblock_check2, eosio_system_tester) try {
    BOOST_CHECK_EQUAL( wasm_assert_msg( "cannot undelegate bandwidth until the chain is activated (at least 15% of all tokens participate in voting)" ),
                       unstake( "producvotera", core_sym::from_string("50.0000"), core_sym::from_string("50.0000") ) );
 
+  // stake across 15% boundary
+  transfer(config::system_account_name, "producvoterb", core_sym::from_string("100000000.0000"), config::system_account_name);
+  BOOST_REQUIRE_EQUAL(success(), stake("producvoterb", core_sym::from_string("4000000.0000"), core_sym::from_string("4000000.0000")));
+  transfer(config::system_account_name, "producvoterc", core_sym::from_string("100000000.0000"), config::system_account_name);
+  BOOST_REQUIRE_EQUAL(success(), stake("producvoterc", core_sym::from_string("2000000.0000"), core_sym::from_string("2000000.0000")));
+
+  BOOST_REQUIRE_EQUAL(success(), vote( N(producvoterb), vector<account_name>(producer_names.begin(), producer_names.begin()+21)));
+  BOOST_REQUIRE_EQUAL(success(), vote( N(producvoterc), vector<account_name>(producer_names.begin(), producer_names.begin()+30)));
+  
+   activaterewd();
+
    // give a chance for everyone to produce blocks
    {
       produce_blocks(21 * 12);
