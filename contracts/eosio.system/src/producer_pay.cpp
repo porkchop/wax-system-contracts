@@ -44,8 +44,9 @@ namespace eosiosystem {
          if (auto it = _rewards.find( producer.value ); it != _rewards.end() ) {
             _greward.new_unpaid_block(it->get_current_type(), timestamp);
 
+            // debug::print("producer % %\n", producer.to_string(), timestamp.slot);
             _rewards.modify( it, same_payer, [&](auto& rec ) {
-               rec.get_counters(it->get_current_type()).track_block(timestamp);
+               rec.get_counters(it->get_current_type()).track_block(timestamp, _greward.block_accuracy_sample_size);
             });
          }
       }

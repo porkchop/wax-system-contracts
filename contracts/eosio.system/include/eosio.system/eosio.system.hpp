@@ -80,7 +80,6 @@ namespace eosiosystem {
    static constexpr uint32_t max_standbys          = 36;
    static constexpr double   producer_perc_reward  = 0.60;
    static constexpr double   standby_perc_reward   = 1 - producer_perc_reward;
-   static constexpr uint32_t block_accuracy_sample_size = 3 * 24 * 60 * 60 * 2; // 3 days worth of blocks for sampling block production accuracy
    static constexpr uint32_t num_performance_producers = 16;
    static constexpr uint32_t performances_sum_sample_size = 1000;
 
@@ -250,6 +249,8 @@ namespace eosiosystem {
       uint8_t current_hour = 0;
 
       double performances_sum = performances_sum_sample_size * 0.5;
+      uint32_t block_accuracy_sample_size = 3 * 24 * 60 * 60 * 2; // default 3 days worth of blocks for sampling block
+
       void update_performance(double new_performance) {
         performances_sum += new_performance - performances_sum / performances_sum_sample_size;
       }
@@ -300,7 +301,7 @@ namespace eosiosystem {
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(current_hour)(performances_sum))
+      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(current_hour)(performances_sum)(block_accuracy_sample_size))
    };
 
    /**
@@ -528,23 +529,36 @@ namespace eosiosystem {
       struct reward_info_counter_type {
          uint64_t unpaid_blocks = 0;  // # of blocks produced
 
-         uint64_t performance_blocks = 0;
+         uint32_t performance_blocks = 0;
          block_timestamp performance_start_block;
+         uint32_t performance_sample_size;
 
-         uint64_t previous_performance_blocks = 0;
+         uint32_t previous_performance_blocks = 0;
          block_timestamp previous_performance_start_block;
+         uint32_t previous_performance_sample_size;
 
-         void track_block(block_timestamp block_time) {
-           unpaid_blocks++;
+         void track_block(block_timestamp block_time, uint32_t block_accuracy_sample_size) {
+           if(block_accuracy_sample_size != performance_sample_size) {
+             // debug::print("block_accuracy_sample_size % %\n", block_accuracy_sample_size, block_time.slot);
+             
+             // If the global sample size window is changed, just reset our count
+             performance_start_block = block_time;
+             performance_sample_size = block_accuracy_sample_size;
+             performance_blocks = 0;
+           }
 
-           if(block_time.slot - performance_start_block.slot <= block_accuracy_sample_size) {
-             performance_blocks++;
-           } else {
+           if(block_time.slot - performance_start_block.slot >= block_accuracy_sample_size) {
              previous_performance_blocks = performance_blocks;
              previous_performance_start_block = performance_start_block;
+             previous_performance_sample_size = performance_sample_size;
+
              performance_start_block = block_time;
-             performance_blocks = 1;
+             performance_sample_size = block_accuracy_sample_size;
+             performance_blocks = 0;
            }
+
+           performance_blocks++;
+           unpaid_blocks++;
            // debug::print("unpaid_blocks %, performance_blocks %, previous_performance_blocks %\n", unpaid_blocks, performance_blocks, previous_performance_blocks);
          }
       };
@@ -883,6 +897,15 @@ namespace eosiosystem {
           */
          [[eosio::action]]
          void activaterewd();
+
+         /**
+          * Configures producer/standby rewards
+          *
+          * @details
+          *
+          */
+         [[eosio::action]]
+         void setrewards(uint32_t block_accuracy_sample_size);
 
          // functions defined in delegate_bandwidth.cpp
 

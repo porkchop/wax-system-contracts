@@ -1013,6 +1013,10 @@ public:
       return push_action(config::system_account_name, N(activaterewd), mvo());
    }
 
+   action_result setrewards( const account_name& account, uint32_t block_accuracy_sample_size ) {
+      return push_action(account, N(setrewards), mvo()
+                          ("block_accuracy_sample_size",     block_accuracy_sample_size));
+   }
 
    abi_serializer abi_ser;
    abi_serializer token_abi_ser;

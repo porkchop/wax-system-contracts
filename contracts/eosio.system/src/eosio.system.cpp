@@ -419,4 +419,9 @@ namespace eosiosystem {
       eosio::print("Standby rewards feature activated\n");
    }
 
+   void system_contract::setrewards(uint32_t block_accuracy_sample_size){
+     require_auth( get_self() );
+     _greward.block_accuracy_sample_size = block_accuracy_sample_size;
+   }
+
 } /// eosio.system

@@ -186,7 +186,7 @@ namespace eosiosystem {
       select_producers_into(0, 21, reward_type::producer, top_producers);
 
       if (top_producers.size() == 0 || top_producers.size() < _gstate.last_producer_schedule_size ) {
-         eosio::print("No top producers or they are less than the last scheduled");
+         // eosio::print("No top producers or they are less than the last scheduled");
          return;
       }
 
@@ -406,10 +406,16 @@ namespace eosiosystem {
       check(_gstate.total_unpaid_voteshare > 0, "no rewards available.");
 
       double producers_performance = calculate_producers_performance(voter);
+      debug::print("producers_performance %\n", producers_performance);
+      // debug::print("0.75/0.99 %\n", 0.75/.99);
+      // debug::print("voter.unpaid_voteshare %\n", voter.unpaid_voteshare);
       double unpaid_voteshare = voter.unpaid_voteshare + producers_performance * voter.unpaid_voteshare_change_rate * double((ct - voter.unpaid_voteshare_last_updated).count() / 1E6);
+      // debug::print("unpaid_voteshare %\n", unpaid_voteshare);
 
       int64_t reward = _gstate.voters_bucket * (unpaid_voteshare / _gstate.total_unpaid_voteshare);
       check(reward > 0, "no rewards available.");
+      // debug::print(" _gstate.voters_bucket %\n",  _gstate.voters_bucket);
+      // debug::print(" reward %\n",  reward);
 
       if (reward > _gstate.voters_bucket) {
          reward = _gstate.voters_bucket;
@@ -434,13 +440,15 @@ namespace eosiosystem {
 
      for(auto type : check_types) {
        auto counters = rewards.get_counters(type);
-       if(_gstate2.last_block_num.slot - counters.previous_performance_start_block.slot > block_accuracy_sample_size * 3)
+       if(_gstate2.last_block_num.slot - counters.previous_performance_start_block.slot > counters.previous_performance_sample_size * 3)
          continue;
        switch(type) {
          case reward_type::standby:
-           return std::min(1., counters.previous_performance_blocks / (0.97 * block_accuracy_sample_size));
+            // debug::print("counters.previous_performance_blocks %, counters.previous_performance_sample_size %, perf %\n", counters.previous_performance_blocks, counters.previous_performance_sample_size, counters.previous_performance_blocks / (0.97 * (0.01) * counters.previous_performance_sample_size));
+           return std::min(1., counters.previous_performance_blocks / (0.97 * (0.01) * counters.previous_performance_sample_size));
          case reward_type::producer:
-           return std::min(1., counters.previous_performance_blocks / (0.99 * block_accuracy_sample_size));
+            // debug::print("counters.previous_performance_blocks %, counters.previous_performance_sample_size %, perf %\n", counters.previous_performance_blocks, counters.previous_performance_sample_size, counters.previous_performance_blocks / (0.99 * (1./21.) * counters.previous_performance_sample_size));
+           return std::min(1., counters.previous_performance_blocks / (0.99 * (1./21.) * counters.previous_performance_sample_size));
        }
      }
 
@@ -473,8 +481,14 @@ namespace eosiosystem {
        if(producer_performances.size() > num_performance_producers) {
          producer_performances.erase(producer_performances.begin() + num_performance_producers, producer_performances.end());
        }
+       
+       std::string perfs;
+       for(auto perf: producer_performances) {
+         perfs += std::to_string(perf) + " ";
+       }
+       debug::print("perfs %\n", perfs);
 
-       double performance = accumulate(producer_performances.begin(), producer_performances.end(), 0) / num_performance_producers;
+       double performance = std::accumulate(producer_performances.begin(), producer_performances.end(), 0.) / num_performance_producers;
        _greward.update_performance(performance);
        return performance;
      }
@@ -499,7 +513,7 @@ namespace eosiosystem {
          _gstate.total_unpaid_voteshare += _gstate.total_voteshare_change_rate * double((ct - _gstate.total_unpaid_voteshare_last_updated).count() / 1E6);
       }
 
-      eosio::print("Calculating _gstate.total_voteshare_change_rate: ", change_rate_delta);
+      // eosio::print("Calculating _gstate.total_voteshare_change_rate: ", change_rate_delta);
       _gstate.total_voteshare_change_rate += change_rate_delta;
       _gstate.total_unpaid_voteshare_last_updated = ct;
 
