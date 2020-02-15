@@ -19,6 +19,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <cmath>
 
 
 namespace eosiosystem {
@@ -529,37 +530,13 @@ namespace eosiosystem {
       struct reward_info_counter_type {
          uint64_t unpaid_blocks = 0;  // # of blocks produced
 
-         uint32_t performance_blocks = 0;
-         block_timestamp performance_start_block;
-         uint32_t performance_sample_size;
+         double performance_sum = 0.0;
+         block_timestamp performance_last_block;
+         uint32_t performance_sample_size = 1; // to avoid div by 0, will get set on first pass through track_block;
 
-         uint32_t previous_performance_blocks = 0;
-         block_timestamp previous_performance_start_block;
-         uint32_t previous_performance_sample_size;
-
-         void track_block(block_timestamp block_time, uint32_t block_accuracy_sample_size) {
-           if(block_accuracy_sample_size != performance_sample_size) {
-             // debug::print("block_accuracy_sample_size % %\n", block_accuracy_sample_size, block_time.slot);
-             
-             // If the global sample size window is changed, just reset our count
-             performance_start_block = block_time;
-             performance_sample_size = block_accuracy_sample_size;
-             performance_blocks = 0;
-           }
-
-           if(block_time.slot - performance_start_block.slot >= block_accuracy_sample_size) {
-             previous_performance_blocks = performance_blocks;
-             previous_performance_start_block = performance_start_block;
-             previous_performance_sample_size = performance_sample_size;
-
-             performance_start_block = block_time;
-             performance_sample_size = block_accuracy_sample_size;
-             performance_blocks = 0;
-           }
-
-           performance_blocks++;
-           unpaid_blocks++;
-           // debug::print("unpaid_blocks %, performance_blocks %, previous_performance_blocks %\n", unpaid_blocks, performance_blocks, previous_performance_blocks);
+         double calc_performance_sum(block_timestamp block_time) const {
+           auto blocks_elapsed = block_time.slot - performance_last_block.slot;
+           return performance_sum * std::pow(1. - 1. / (double)performance_sample_size, blocks_elapsed);
          }
       };
 
@@ -604,6 +581,53 @@ namespace eosiosystem {
       void reset_counters() {
          for (auto& counter: counters)
             counter.second.unpaid_blocks = 0;
+      }
+      
+      auto& get_current_counter() {
+         auto it = counters.find(current_type);
+         check(it != counters.end(), "Cannot find counter data");
+         return it->second;
+      }
+
+      double get_performance(block_timestamp block_time) {
+        const auto &counter = get_current_counter();
+        switch(get_current_type()) {
+          case reward_type::standby: {
+            double perf = counter.calc_performance_sum(block_time) / (0.97 * (0.01) * counter.performance_sample_size);
+            // debug::print("counter.performance_sum %, counter.performance_sample_size %, perf %\n", counter.performance_sum, counter.performance_sample_size, perf);
+            return perf;
+          }
+          case reward_type::producer: {
+            double perf = counter.calc_performance_sum(block_time) / (0.99 * (1./21.) * counter.performance_sample_size);
+            // debug::print("counter.performance_sum %, counter.performance_sample_size %, perf %\n", counter.performance_sum, counter.performance_sample_size, perf);
+            return perf;
+          }
+          default:
+            return 0;
+        }
+      }
+      
+      void track_block(block_timestamp block_time, uint32_t block_accuracy_sample_size) {
+        auto &counter = get_current_counter();
+        if(block_accuracy_sample_size != counter.performance_sample_size) {
+          if(owner.to_string() == "defproducera")
+            debug::print("block_accuracy_sample_size % %\n", block_accuracy_sample_size, block_time.slot);
+          // If the global sample size window is changed, scale accordingly
+          counter.performance_sample_size = block_accuracy_sample_size;
+          counter.performance_sum = 0;
+          // double current_performance = get_performance(block_time);
+          // if(current_performance != 0) {
+          //   counter.performance_sum *= 1 / current_performance; // set everyone to full performance for easy testing
+          // }
+          // debug::print("counter.performance_sample_size % counter.performance_sum % \n", counter.performance_sample_size, counter.performance_sum);
+        }
+
+        counter.performance_last_block = block_time;
+        // debug::print("blocks_elapsed % counter.performance_sample_size % counter.performance_last_block % counter.performance_sum %\n", blocks_elapsed, counter.performance_sample_size, counter.performance_last_block.slot, counter.performance_sum);
+        counter.performance_sum = 1. + counter.calc_performance_sum(block_time);
+        counter.unpaid_blocks++;
+        if(owner.to_string() == "defproducera")
+          debug::print("counter.performance_sum % % \n", counter.performance_sum, block_time.slot);
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
@@ -1434,7 +1458,6 @@ namespace eosiosystem {
          void select_producers_into( uint64_t begin, uint64_t count, reward_type type, prod_vec_t& result );
          bool is_it_time_to_select_a_standby() const;
          double calculate_producers_performance( const voter_info& voter );
-         double single_producer_performance( const reward_info& rewards ) const;
 
          template <auto system_contract::*...Ptrs>
          class registration {

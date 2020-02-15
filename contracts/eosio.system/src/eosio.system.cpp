@@ -421,6 +421,7 @@ namespace eosiosystem {
 
    void system_contract::setrewards(uint32_t block_accuracy_sample_size){
      require_auth( get_self() );
+     check(block_accuracy_sample_size > 0, "block_accuracy_sample_size must be > 0");
      _greward.block_accuracy_sample_size = block_accuracy_sample_size;
    }
 

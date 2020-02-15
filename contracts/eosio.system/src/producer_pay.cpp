@@ -46,7 +46,7 @@ namespace eosiosystem {
 
             // debug::print("producer % %\n", producer.to_string(), timestamp.slot);
             _rewards.modify( it, same_payer, [&](auto& rec ) {
-               rec.get_counters(it->get_current_type()).track_block(timestamp, _greward.block_accuracy_sample_size);
+               rec.track_block(timestamp, _greward.block_accuracy_sample_size);
             });
          }
       }

@@ -2045,7 +2045,6 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
    create_account_with_resources( N(producvoterb), config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset );
 
    int64_t last_voters_bucket = 0;
-   const uint32_t perf_sample_size = 21 * 12 * 4;  // choose a performance sample size that is easily divisible by 4 full
 
    std::vector<account_name> producer_names;
    {
@@ -2097,11 +2096,8 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
    // producvotera is the only voter and should get all staker rewards
    {
       produce_blocks(100);  // get the producers into production
-      setrewards(config::system_account_name, perf_sample_size); // reset perf counts to 0 and blocks per performance sampling period
-      produce_blocks(perf_sample_size / 2 - 1); // producers crank through half
-      produce_block(fc::milliseconds(1000 * perf_sample_size / 8 + 500)); // producers miss 1/4
-      produce_blocks(perf_sample_size / 4 + 21 * 12); // producers hit the remaining 1/4, should give us a (3/4) / 0.99 performance ratio
-      produce_blocks(21 * 12); // cycle through a full rotation so each producer can cache the perf window and move to the next one
+      setrewards(config::system_account_name, 1); // effectively disable performance rewards scaling
+      produce_blocks(2 * 21 * 12);  // cycle through the producers to set them all at full rewards scaling
   
       const auto     initial_global_state              = get_global_state();
       const uint64_t initial_claim_time                = microseconds_since_epoch_of_iso_string( initial_global_state["last_pervote_bucket_fill"] );
@@ -2130,12 +2126,67 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
       double secs_between_fills = usecs_between_fills/1000000.0;
       uint64_t new_tokens = (initial_supply.get_amount() * secs_between_fills * continuous_rate) / secs_per_year;
 
-      double producer_performance = 0.75 / 0.99;
+      // Voter reward ration should be 100% so the voter reward will be the entire amount allocated from inflation
+      int64_t voter_reward = int64_t(new_tokens / 5);
+
+      BOOST_REQUIRE_EQUAL(0, initial_voters_account_balance);
+      BOOST_REQUIRE_EQUAL(0, voters_account_balance);
+      BOOST_REQUIRE_EQUAL(0, initial_voters_bucket); //no tokens were reserved yet
+      BOOST_REQUIRE_EQUAL(0, voters_bucket);
+
+      BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
+      BOOST_REQUIRE_EQUAL(voter_reward, balance.get_amount() - initial_balance.get_amount());
+
+      last_voters_bucket = voters_bucket;
+   }
+
+   {
+      produce_block(fc::days(1));
+      produce_blocks(2 * 21 * 12);  // clear any gaps due to the previous huge block
+      const uint32_t perf_sample_size = 4 * 21 * 12;  // 4 full rotation
+      setrewards(config::system_account_name, perf_sample_size);
+      produce_blocks(perf_sample_size / 2 - 1);
+      produce_block(fc::milliseconds(500 * perf_sample_size / 4 + 500));
+      // setrewards(config::system_account_name, perf_sample_size + 1);
+      produce_blocks(perf_sample_size / 4 - 1);
+      control->head_block_producer();
+
+      // setrewards(config::system_account_name, 4);
+      // produce_block(fc::milliseconds(500));
+  
+      const auto     initial_global_state              = get_global_state();
+      const uint64_t initial_claim_time                = microseconds_since_epoch_of_iso_string( initial_global_state["last_pervote_bucket_fill"] );
+      const int64_t  initial_voters_bucket             = initial_global_state["voters_bucket"].as<int64_t>();
+      const int64_t  initial_voters_account_balance    = get_balance(N(eosio.voters)).get_amount();
+      const uint32_t initial_tot_unpaid_voteshare      = initial_global_state["total_unpaid_voteshare"].as<uint32_t>();
+
+      const asset initial_supply  = get_token_supply();
+      const asset initial_balance = get_balance(N(producvotera));
+
+      BOOST_REQUIRE_EQUAL(success(), push_action(N(producvotera), N(voterclaim), mvo()("owner", "producvotera")));
+
+      const auto     global_state            = get_global_state();
+      const uint64_t claim_time              = microseconds_since_epoch_of_iso_string( global_state["last_pervote_bucket_fill"] );
+      const int64_t  voters_bucket           = global_state["voters_bucket"].as<int64_t>();
+      const int64_t  voters_account_balance  = get_balance(N(eosio.voters)).get_amount();
+
+      const asset supply  = get_token_supply();
+      const asset balance = get_balance(N(producvotera));
+
+      auto voter = get_voter_info( N(producvotera) );
+
+      BOOST_REQUIRE_EQUAL(claim_time, microseconds_since_epoch_of_iso_string( voter["last_claim_time"] ));
+
+      auto usecs_between_fills = claim_time - initial_claim_time;
+      double secs_between_fills = usecs_between_fills/1000000.0;
+      uint64_t new_tokens = (initial_supply.get_amount() * secs_between_fills * continuous_rate) / secs_per_year;
+
+      double producer_performance = 0.763328;//0.75 / 0.99;
       int64_t voter_reward = int64_t(new_tokens / 5) * producer_performance;
       int64_t deduced_voter_bucket = int64_t(new_tokens / 5) - voter_reward;
 
       BOOST_TEST_MESSAGE("deduced_voter_bucket: " << deduced_voter_bucket << " voters_account_balance: " << voters_account_balance << " secs_between_fills: " << secs_between_fills << " new_tokens: " << new_tokens << " secs_per_year: " << secs_per_year << " initial_supply.get_amount(): " << initial_supply.get_amount() << '\n');
-      BOOST_REQUIRE_EQUAL(0, initial_voters_account_balance);
+      BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_account_balance);
       BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_account_balance);
       BOOST_REQUIRE_EQUAL(0, initial_voters_bucket); //no tokens were reserved yet
       BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_bucket);
@@ -2159,53 +2210,53 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
    }
 
    // wait 5 more minutes, producvotera can now claim rewards again
-   {
-      produce_blocks(perf_sample_size * 2);
-
-      const auto     initial_global_state              = get_global_state();
-      const uint64_t initial_claim_time                = microseconds_since_epoch_of_iso_string( initial_global_state["last_pervote_bucket_fill"] );
-      const int64_t  initial_voters_bucket             = initial_global_state["voters_bucket"].as<int64_t>();
-      const int64_t  initial_voters_account_balance    = get_balance(N(eosio.voters)).get_amount();
-      const double initial_tot_unpaid_voteshare      = initial_global_state["total_unpaid_voteshare"].as<double>();
-      const double initial_total_voteshare_change_rate      = initial_global_state["total_voteshare_change_rate"].as<double>();
-      const uint64_t total_unpaid_voteshare_last_updated = microseconds_since_epoch_of_iso_string( initial_global_state["total_unpaid_voteshare_last_updated"] );
-
-      const asset initial_supply  = get_token_supply();
-      const asset initial_balance = get_balance(N(producvotera));
-      const uint64_t unpaid_voteshare_last_updated = microseconds_since_epoch_of_iso_string(get_voter_info( N(producvotera) )["unpaid_voteshare_last_updated"]);
-
-      BOOST_REQUIRE_EQUAL(success(), push_action(N(producvotera), N(voterclaim), mvo()("owner", "producvotera")));
-
-      const auto     global_state            = get_global_state();
-      const uint64_t claim_time              = microseconds_since_epoch_of_iso_string( global_state["last_pervote_bucket_fill"] );
-      const int64_t  voters_bucket           = global_state["voters_bucket"].as<int64_t>();
-      const int64_t  voters_account_balance  = get_balance(N(eosio.voters)).get_amount();
-      const double tot_unpaid_voteshare    = global_state["total_unpaid_voteshare"].as<double>();
-
-      const asset supply  = get_token_supply();
-      const asset balance = get_balance(N(producvotera));
-
-      auto voter = get_voter_info( N(producvotera) );
-
-      BOOST_REQUIRE_EQUAL(claim_time, microseconds_since_epoch_of_iso_string( voter["last_claim_time"] ));
-
-      auto usecs_between_fills = claim_time - initial_claim_time;
-      uint64_t new_tokens = (initial_supply.get_amount() * double(usecs_between_fills) * continuous_rate) / usecs_per_year;
-
-      int64_t voters_bucket_pre_reward = last_voters_bucket + int64_t(new_tokens / 5);
-      double unpaid_voteshare_change_rate = voter["unpaid_voteshare_change_rate"].as<double>();
-      double producer_performance = 1;
-      double unpaid_voteshare = producer_performance * unpaid_voteshare_change_rate * double((claim_time - unpaid_voteshare_last_updated) / 1E6);
-      uint64_t reward = voters_bucket_pre_reward * (unpaid_voteshare / (initial_tot_unpaid_voteshare + initial_total_voteshare_change_rate * double((claim_time - total_unpaid_voteshare_last_updated) / 1E6)));
-
-      BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_account_balance);
-      BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_bucket); //no new tokens were reserved yet
-      BOOST_REQUIRE_EQUAL(voters_account_balance, voters_bucket); // bucket and balance invariance
-      BOOST_REQUIRE_EQUAL(voters_bucket_pre_reward - reward, voters_bucket); // tokens were already distributed
-
-      BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
-      BOOST_REQUIRE_EQUAL(voters_bucket_pre_reward - voters_bucket, balance.get_amount() - initial_balance.get_amount());
-   }
+   // {
+   //    produce_blocks(perf_sample_size * 2);
+   // 
+   //    const auto     initial_global_state              = get_global_state();
+   //    const uint64_t initial_claim_time                = microseconds_since_epoch_of_iso_string( initial_global_state["last_pervote_bucket_fill"] );
+   //    const int64_t  initial_voters_bucket             = initial_global_state["voters_bucket"].as<int64_t>();
+   //    const int64_t  initial_voters_account_balance    = get_balance(N(eosio.voters)).get_amount();
+   //    const double initial_tot_unpaid_voteshare      = initial_global_state["total_unpaid_voteshare"].as<double>();
+   //    const double initial_total_voteshare_change_rate      = initial_global_state["total_voteshare_change_rate"].as<double>();
+   //    const uint64_t total_unpaid_voteshare_last_updated = microseconds_since_epoch_of_iso_string( initial_global_state["total_unpaid_voteshare_last_updated"] );
+   // 
+   //    const asset initial_supply  = get_token_supply();
+   //    const asset initial_balance = get_balance(N(producvotera));
+   //    const uint64_t unpaid_voteshare_last_updated = microseconds_since_epoch_of_iso_string(get_voter_info( N(producvotera) )["unpaid_voteshare_last_updated"]);
+   // 
+   //    BOOST_REQUIRE_EQUAL(success(), push_action(N(producvotera), N(voterclaim), mvo()("owner", "producvotera")));
+   // 
+   //    const auto     global_state            = get_global_state();
+   //    const uint64_t claim_time              = microseconds_since_epoch_of_iso_string( global_state["last_pervote_bucket_fill"] );
+   //    const int64_t  voters_bucket           = global_state["voters_bucket"].as<int64_t>();
+   //    const int64_t  voters_account_balance  = get_balance(N(eosio.voters)).get_amount();
+   //    const double tot_unpaid_voteshare    = global_state["total_unpaid_voteshare"].as<double>();
+   // 
+   //    const asset supply  = get_token_supply();
+   //    const asset balance = get_balance(N(producvotera));
+   // 
+   //    auto voter = get_voter_info( N(producvotera) );
+   // 
+   //    BOOST_REQUIRE_EQUAL(claim_time, microseconds_since_epoch_of_iso_string( voter["last_claim_time"] ));
+   // 
+   //    auto usecs_between_fills = claim_time - initial_claim_time;
+   //    uint64_t new_tokens = (initial_supply.get_amount() * double(usecs_between_fills) * continuous_rate) / usecs_per_year;
+   // 
+   //    int64_t voters_bucket_pre_reward = last_voters_bucket + int64_t(new_tokens / 5);
+   //    double unpaid_voteshare_change_rate = voter["unpaid_voteshare_change_rate"].as<double>();
+   //    double producer_performance = 1;
+   //    double unpaid_voteshare = producer_performance * unpaid_voteshare_change_rate * double((claim_time - unpaid_voteshare_last_updated) / 1E6);
+   //    uint64_t reward = voters_bucket_pre_reward * (unpaid_voteshare / (initial_tot_unpaid_voteshare + initial_total_voteshare_change_rate * double((claim_time - total_unpaid_voteshare_last_updated) / 1E6)));
+   // 
+   //    BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_account_balance);
+   //    BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_bucket); //no new tokens were reserved yet
+   //    BOOST_REQUIRE_EQUAL(voters_account_balance, voters_bucket); // bucket and balance invariance
+   //    BOOST_REQUIRE_EQUAL(voters_bucket_pre_reward - reward, voters_bucket); // tokens were already distributed
+   // 
+   //    BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
+   //    BOOST_REQUIRE_EQUAL(voters_bucket_pre_reward - voters_bucket, balance.get_amount() - initial_balance.get_amount());
+   // }
 
    // Voting less than 16 producers should award no rewards
    {

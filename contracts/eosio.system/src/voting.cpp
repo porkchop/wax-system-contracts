@@ -432,29 +432,6 @@ namespace eosiosystem {
       return reward;
    }
 
-   double system_contract::single_producer_performance( const reward_info& rewards ) const {
-     auto current_type = rewards.get_current_type();
-     auto first_check = current_type == reward_type::none ? reward_type::standby : current_type;
-     auto second_check = first_check == reward_type::producer ? reward_type::standby : reward_type::producer;
-     reward_type check_types[] {first_check, second_check};
-
-     for(auto type : check_types) {
-       auto counters = rewards.get_counters(type);
-       if(_gstate2.last_block_num.slot - counters.previous_performance_start_block.slot > counters.previous_performance_sample_size * 3)
-         continue;
-       switch(type) {
-         case reward_type::standby:
-            // debug::print("counters.previous_performance_blocks %, counters.previous_performance_sample_size %, perf %\n", counters.previous_performance_blocks, counters.previous_performance_sample_size, counters.previous_performance_blocks / (0.97 * (0.01) * counters.previous_performance_sample_size));
-           return std::min(1., counters.previous_performance_blocks / (0.97 * (0.01) * counters.previous_performance_sample_size));
-         case reward_type::producer:
-            // debug::print("counters.previous_performance_blocks %, counters.previous_performance_sample_size %, perf %\n", counters.previous_performance_blocks, counters.previous_performance_sample_size, counters.previous_performance_blocks / (0.99 * (1./21.) * counters.previous_performance_sample_size));
-           return std::min(1., counters.previous_performance_blocks / (0.99 * (1./21.) * counters.previous_performance_sample_size));
-       }
-     }
-
-     return -1.;
-   }
-
    double system_contract::calculate_producers_performance( const voter_info& voter ) {
      if (_greward.activated) {
        std::vector<double> producer_performances;
@@ -464,8 +441,8 @@ namespace eosiosystem {
 
        for( const auto& producer : voter_or_proxy.producers ) {
          auto rewards = _rewards.get( producer.value, "producer not found" );
-         double perf = single_producer_performance(rewards);
-         if(perf == -1) {
+         double perf = std::max(std::min(1.0, rewards.get_performance(_gstate2.last_block_num)), 0.5); // clamp everyones' perf to >= 0.5 and <= 1
+         if(perf == -1.) {
            perf = _greward.average_producers_performance();
          }
          producer_performances.push_back(perf);
