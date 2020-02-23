@@ -15,7 +15,7 @@
 
 /// percent expressed as a float number between 0 and 1
 /// @todo Float comparisons can be a problem!
-#define BOOST_REQUIRE_APROX(R, L, percent) \
+#define BOOST_REQUIRE_APROX(L, R, percent) \
    do { \
       if (R != 0.0 && L != 0.0) { \
          auto A = std::max(R, L); \
@@ -26,6 +26,11 @@
       else \
          BOOST_REQUIRE_EQUAL(R, L); \
    } while (false)
+
+ #define BOOST_REQUIRE_GTE(L, R) \
+    if (L < R) \
+       BOOST_FAIL("[" << (L) << " < " << (R) << "] (should be >=)");
+
 
 
 struct _abi_hash {
@@ -1937,18 +1942,17 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_performance_rewards, eosio_system_tester, * bo
       double secs_between_fills = usecs_between_fills/1000000.0;
       uint64_t new_tokens = (initial_supply.get_amount() * secs_between_fills * continuous_rate) / secs_per_year;
 
-      double producer_performance = 0.5;
-      int64_t voter_reward = int64_t(new_tokens / 5) * producer_performance;
-      int64_t deduced_voter_bucket = int64_t(new_tokens / 5) - voter_reward;
-
+      int64_t max_voter_reward = int64_t(new_tokens / 5);
+      
       BOOST_REQUIRE_EQUAL(0, initial_voters_account_balance);
-      BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_account_balance);
+      BOOST_REQUIRE_EQUAL(max_voter_reward - (balance.get_amount() - initial_balance.get_amount()), voters_account_balance);
       BOOST_REQUIRE_EQUAL(0, initial_voters_bucket); //no tokens were reserved yet
-      BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_bucket);
+      BOOST_REQUIRE_EQUAL(voters_account_balance, voters_bucket);
 
       BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
-      BOOST_REQUIRE_EQUAL(voter_reward, balance.get_amount() - initial_balance.get_amount());
-
+      BOOST_REQUIRE_GT(balance.get_amount(), initial_balance.get_amount());
+      BOOST_REQUIRE_GTE(max_voter_reward, balance.get_amount() - initial_balance.get_amount());
+      
       last_voters_bucket = voters_bucket;
    }
 
@@ -1998,19 +2002,16 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_performance_rewards, eosio_system_tester, * bo
       auto usecs_between_fills = claim_time - initial_claim_time;
       uint64_t new_tokens = (initial_supply.get_amount() * double(usecs_between_fills) * continuous_rate) / usecs_per_year;
 
-      int64_t voters_bucket_pre_reward = last_voters_bucket + int64_t(new_tokens / 5);
-      double unpaid_voteshare_change_rate = voter["unpaid_voteshare_change_rate"].as<double>();
-      double producer_performance = 0.5;
-      double unpaid_voteshare = producer_performance * unpaid_voteshare_change_rate * double((claim_time - unpaid_voteshare_last_updated) / 1E6);
-      uint64_t reward = voters_bucket_pre_reward * (unpaid_voteshare / (initial_tot_unpaid_voteshare + initial_total_voteshare_change_rate * double((claim_time - total_unpaid_voteshare_last_updated) / 1E6)));
+      int64_t max_voter_reward = int64_t(new_tokens / 5);
 
       BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_account_balance);
-      BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_bucket); //no new tokens were reserved yet
-      BOOST_REQUIRE_EQUAL(voters_account_balance, voters_bucket); // bucket and balance invariance
-      BOOST_REQUIRE_EQUAL(voters_bucket_pre_reward - reward, voters_bucket); // tokens were already distributed
+      BOOST_REQUIRE_EQUAL(max_voter_reward - (balance.get_amount() - initial_balance.get_amount()) + initial_voters_account_balance, voters_account_balance);
+      BOOST_REQUIRE_EQUAL(initial_voters_account_balance, initial_voters_bucket); //no tokens were reserved yet
+      BOOST_REQUIRE_EQUAL(voters_account_balance, voters_bucket);
 
       BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
-      BOOST_REQUIRE_EQUAL(voters_bucket_pre_reward - voters_bucket, balance.get_amount() - initial_balance.get_amount());
+      BOOST_REQUIRE_GT(balance.get_amount(), initial_balance.get_amount());
+      BOOST_REQUIRE_GTE(max_voter_reward, balance.get_amount() - initial_balance.get_amount());
    }
 
    // Voting less than 16 producers should award no rewards
@@ -2039,66 +2040,81 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_performance_rewards, eosio_system_tester, * bo
 } FC_LOG_AND_RETHROW()
 
 BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_tester, * boost::unit_test::tolerance(1e-10)) try {
+   using prod_vec_t = std::vector<account_name>;
    activaterewd();
    const asset large_asset = core_sym::from_string("80.0000");
    create_account_with_resources( N(producvotera), config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset );
    create_account_with_resources( N(producvoterb), config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset );
+   create_account_with_resources( N(producvoterc), config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset );
+   create_account_with_resources( N(producvoterd), config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset );
+   create_account_with_resources( N(producvotere), config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset );
 
-   int64_t last_voters_bucket = 0;
+   prod_vec_t producer_names, standby_names, badproducer_names;
+   producer_names.reserve(21);
+   standby_names.reserve(36);
+   badproducer_names.reserve(16);
 
-   std::vector<account_name> producer_names;
-   {
-      producer_names.reserve('z' - 'a' + 1);
-      {
-         const std::string root("defproducer");
-         for ( char c = 'a'; c <= 'z'; ++c ) {
-            producer_names.emplace_back(root + std::string(1, c));
-         }
+   // It can generate up to 26 producers in one call (quantity > 26 will be ignored)
+   auto gen_producers = [&](const std::string& prefix, std::size_t quantity, prod_vec_t& result) {
+      for (char c = 'a'; c <= 'z' && c - 'a' < quantity; c++ ) {
+         account_name prod{prefix + std::string(1, c)};
+         BOOST_TEST_CHECKPOINT("Producer: " << prod.to_string());
+
+         result.emplace_back(prod);
+         create_account_with_resources(
+            prod, config::system_account_name, core_sym::from_string("1.0000"), false, large_asset, large_asset);
+
+         regproducer(prod);
       }
-      setup_producer_accounts(producer_names);
-      for (const auto& p: producer_names) {
-         BOOST_REQUIRE_EQUAL( success(), regproducer(p) );
-         produce_blocks(1);
-         ilog( "------ get pro----------" );
-         wdump((p));
-         BOOST_TEST(0 == get_producer_info(p)["total_votes"].as<double>());
-      }
-   }
+   };
 
-   produce_block(fc::hours(24));
+   // Create producers/standbys
+   gen_producers("defproducer", 21, producer_names);
+   produce_block();
 
-   transfer( config::system_account_name, "producvotera", core_sym::from_string("400000000.0000"), config::system_account_name);
-   transfer( config::system_account_name, "producvoterb", core_sym::from_string("400000000.0000"), config::system_account_name);
-   BOOST_REQUIRE_EQUAL(success(), stake("producvotera", core_sym::from_string("100000000.0000"), core_sym::from_string("100000000.0000")));
-   BOOST_REQUIRE_EQUAL(success(), stake("producvoterb", core_sym::from_string("100000000.0000"), core_sym::from_string("100000000.0000")));
+   gen_producers("defstandby1", 26, standby_names);
+   produce_block();
 
-   BOOST_REQUIRE_EQUAL(wasm_assert_msg("cannot claim rewards until the chain is activated (at least 15% of all tokens participate in voting)"),
-                       push_action(N(producvotera), N(voterclaim), mvo()("owner", "producvotera")));
+   gen_producers("defstandby2", 10, standby_names);
+   produce_block();
+      
+   gen_producers("badproducer", 16, badproducer_names);
+   produce_block();
 
-   BOOST_REQUIRE_EQUAL(success(), vote(N(producvotera), vector<account_name>(producer_names.begin(), producer_names.begin()+21)));  // TODO + 16 (< 21 producers, will yield perfs of 1)
 
-   // Try to claim reward before voting.
-   BOOST_REQUIRE_EQUAL(wasm_assert_msg("you need to vote first! unpaid_voteshare_last_updated is zero."),
-                       push_action(N(producvoterb), N(voterclaim), mvo()("owner", "producvoterb")));
+   // produce_block(fc::hours(24));
 
-   // Try claims rewards before there are rewards available.
+   transfer( config::system_account_name, "producvotera", core_sym::from_string("100000000.0000"), config::system_account_name);
+   transfer( config::system_account_name, "producvoterb", core_sym::from_string("100000000.0000"), config::system_account_name);
+   transfer( config::system_account_name, "producvoterc", core_sym::from_string("100000000.0000"), config::system_account_name);
+   transfer( config::system_account_name, "producvoterd", core_sym::from_string("100000000.0000"), config::system_account_name);
+   transfer( config::system_account_name, "producvotere", core_sym::from_string("100000000.0000"), config::system_account_name);
+   BOOST_REQUIRE_EQUAL(success(), stake("producvotera", core_sym::from_string("50000000.0000"), core_sym::from_string("50000000.0000")));
+   BOOST_REQUIRE_EQUAL(success(), stake("producvoterb", core_sym::from_string("20000000.0000"), core_sym::from_string("20000000.0000")));
+   BOOST_REQUIRE_EQUAL(success(), stake("producvoterc", core_sym::from_string("20000000.0000"), core_sym::from_string("20000000.0000")));
+   BOOST_REQUIRE_EQUAL(success(), stake("producvoterd", core_sym::from_string("5000000.0000"), core_sym::from_string("5000000.0000")));
+   BOOST_REQUIRE_EQUAL(success(), stake("producvotere", core_sym::from_string("5000000.0000"), core_sym::from_string("5000000.0000")));
+
+   BOOST_REQUIRE_EQUAL(success(), vote(N(producvotera), vector<account_name>(producer_names.begin(), producer_names.begin()+21)));
+
+   BOOST_REQUIRE_EQUAL(success(), vote(N(producvoterb), vector<account_name>(standby_names.begin(), standby_names.begin()+30)));
+
+   BOOST_REQUIRE_EQUAL(success(), vote(N(producvoterc), vector<account_name>(standby_names.begin()+30, standby_names.begin()+36)));
+
+   BOOST_REQUIRE_EQUAL(success(), vote(N(producvoterd), vector<account_name>(badproducer_names.begin(), badproducer_names.begin()+16)));
+
+   BOOST_REQUIRE_EQUAL(success(), vote(N(producvotere), vector<account_name>(badproducer_names.begin(), badproducer_names.begin()+16)));
+
    {
-      BOOST_REQUIRE_EQUAL(wasm_assert_msg("no rewards available."),
-                       push_action(N(producvotera), N(voterclaim), mvo()("owner", "producvotera")));
-   }
+      produce_blocks_until_end_of_round();  // get the producers into production
+      uint32_t full_round = 21 * 12;
+      uint32_t blocks_performance_window = 100 * full_round;
+      setrewards(config::system_account_name, blocks_performance_window);
+      produce_blocks(300 * full_round - 1);  // cycle through the producers to set them all at close to full rewards scaling
+      BOOST_REQUIRE_EQUAL(success(), push_action(N(producvotera), N(voterclaim), mvo()("owner", "producvotera")));
+      BOOST_REQUIRE_EQUAL(success(), push_action(N(producvoterb), N(voterclaim), mvo()("owner", "producvoterb")));
+      BOOST_REQUIRE_EQUAL(1, 2);
 
-   // Try to claim rewards with a non voter account.
-   {
-      BOOST_REQUIRE_EQUAL(wasm_assert_msg("voter does not exist."),
-                          push_action(N(defproducera), N(voterclaim), mvo()("owner", "defproducera")));
-   }
-
-   // producvotera is the only voter and should get all staker rewards
-   {
-      produce_blocks(100);  // get the producers into production
-      setrewards(config::system_account_name, 1); // effectively disable performance rewards scaling
-      produce_blocks(2 * 21 * 12);  // cycle through the producers to set them all at full rewards scaling
-  
       const auto     initial_global_state              = get_global_state();
       const uint64_t initial_claim_time                = microseconds_since_epoch_of_iso_string( initial_global_state["last_pervote_bucket_fill"] );
       const int64_t  initial_voters_bucket             = initial_global_state["voters_bucket"].as<int64_t>();
@@ -2126,7 +2142,7 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
       double secs_between_fills = usecs_between_fills/1000000.0;
       uint64_t new_tokens = (initial_supply.get_amount() * secs_between_fills * continuous_rate) / secs_per_year;
 
-      // Voter reward ration should be 100% so the voter reward will be the entire amount allocated from inflation
+      // Voter reward ratio should be 100% so the voter reward will be the entire amount allocated from inflation
       int64_t voter_reward = int64_t(new_tokens / 5);
 
       BOOST_REQUIRE_EQUAL(0, initial_voters_account_balance);
@@ -2136,8 +2152,6 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
 
       BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
       BOOST_REQUIRE_EQUAL(voter_reward, balance.get_amount() - initial_balance.get_amount());
-
-      last_voters_bucket = voters_bucket;
    }
 
    {
@@ -2149,11 +2163,11 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
       produce_block(fc::milliseconds(500 * perf_sample_size / 4 + 500));
       // setrewards(config::system_account_name, perf_sample_size + 1);
       produce_blocks(perf_sample_size / 4 - 1);
-      control->head_block_producer();
+      control->head_block_producer();      
 
       // setrewards(config::system_account_name, 4);
       // produce_block(fc::milliseconds(500));
-  
+
       const auto     initial_global_state              = get_global_state();
       const uint64_t initial_claim_time                = microseconds_since_epoch_of_iso_string( initial_global_state["last_pervote_bucket_fill"] );
       const int64_t  initial_voters_bucket             = initial_global_state["voters_bucket"].as<int64_t>();
@@ -2185,16 +2199,12 @@ BOOST_FIXTURE_TEST_CASE(voter_pay_various_performance_rewards, eosio_system_test
       int64_t voter_reward = int64_t(new_tokens / 5) * producer_performance;
       int64_t deduced_voter_bucket = int64_t(new_tokens / 5) - voter_reward;
 
-      BOOST_TEST_MESSAGE("deduced_voter_bucket: " << deduced_voter_bucket << " voters_account_balance: " << voters_account_balance << " secs_between_fills: " << secs_between_fills << " new_tokens: " << new_tokens << " secs_per_year: " << secs_per_year << " initial_supply.get_amount(): " << initial_supply.get_amount() << '\n');
-      BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_account_balance);
       BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_account_balance);
       BOOST_REQUIRE_EQUAL(0, initial_voters_bucket); //no tokens were reserved yet
       BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_bucket);
 
       BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
       BOOST_REQUIRE_EQUAL(voter_reward, balance.get_amount() - initial_balance.get_amount());
-
-      last_voters_bucket = voters_bucket;
    }
 
    {
@@ -2340,8 +2350,8 @@ BOOST_FIXTURE_TEST_CASE(multiple_voters_performance_rewards, eosio_system_tester
       uint64_t voters_inflation = (mid_term_supply.get_amount() - initial_supply.get_amount()) / 5 
          + (supply.get_amount() - mid_term_supply.get_amount()) / 5;
 
-      // Both voters should get almost the same reward (the difference is caused by the 0.5 seconds between claims).
-      BOOST_REQUIRE(5 > balance1.get_amount() - balance2.get_amount());
+      // Both voters should get almost the same reward (the difference is caused by the 0.5 seconds between claims, and the performance ratio reducing the overall pool slightly in the first claim).
+      BOOST_REQUIRE_APROX(balance1.get_amount(), balance2.get_amount(), 0.01);
       BOOST_REQUIRE(5 > voters_inflation - add_gbm(balance1.get_amount() + balance2.get_amount() + global_state["voters_bucket"].as<int64_t>()));
    }
 
@@ -2368,7 +2378,7 @@ BOOST_FIXTURE_TEST_CASE(multiple_voters_performance_rewards, eosio_system_tester
       asset balance1 = get_balance(N(voter1));
       asset balance2 = get_balance(N(voter2));
 
-      BOOST_REQUIRE(5 > ((balance1.get_amount() - initial_balance1.get_amount()) / 2) - (balance2.get_amount() - initial_balance2.get_amount()));
+      BOOST_REQUIRE_APROX((balance1.get_amount() - initial_balance1.get_amount()) / 2, balance2.get_amount() - initial_balance2.get_amount(), 0.01);
    }
 
    // Validate unstaking and restaking rewards.
@@ -2536,17 +2546,16 @@ BOOST_FIXTURE_TEST_CASE(voter_gbm_pay_performance_rewards, eosio_system_tester, 
       double secs_between_fills = usecs_between_fills/1000000.0;
       uint64_t new_tokens = (initial_supply.get_amount() * secs_between_fills * continuous_rate) / secs_per_year;
 
-      double producer_performance = 0.5;
-      int64_t voter_reward = int64_t(new_tokens / 5) * producer_performance;
-      int64_t deduced_voter_bucket = int64_t(new_tokens / 5) - voter_reward;
-
+      int64_t max_voter_reward = int64_t(new_tokens / 5);
+      
       BOOST_REQUIRE_EQUAL(0, initial_voters_account_balance);
-      BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_account_balance);
+      BOOST_REQUIRE_EQUAL(max_voter_reward - (genesis_balance.get_amount() - initial_genesis_balance.get_amount()), voters_account_balance);
       BOOST_REQUIRE_EQUAL(0, initial_voters_bucket); //no tokens were reserved yet
-      BOOST_REQUIRE_EQUAL(deduced_voter_bucket, voters_bucket); // all tokens were already distributed
+      BOOST_REQUIRE_EQUAL(voters_account_balance, voters_bucket);
 
       BOOST_REQUIRE_EQUAL(add_gbm(new_tokens), supply.get_amount() - initial_supply.get_amount());
-      BOOST_REQUIRE_EQUAL(voter_reward, genesis_balance.get_amount() - initial_genesis_balance.get_amount());
+      BOOST_REQUIRE_GT(genesis_balance.get_amount(), initial_genesis_balance.get_amount());
+      BOOST_REQUIRE_GTE(max_voter_reward, genesis_balance.get_amount() - initial_genesis_balance.get_amount());
 
       last_voters_bucket = voters_bucket;
    }
@@ -2598,10 +2607,6 @@ BOOST_FIXTURE_TEST_CASE(voter_gbm_pay_performance_rewards, eosio_system_tester, 
       uint64_t new_tokens = (initial_supply.get_amount() * double(usecs_between_fills) * continuous_rate) / usecs_per_year;
 
       int64_t voters_bucket_pre_reward = last_voters_bucket + int64_t(new_tokens / 5);
-      double unpaid_voteshare_change_rate = voter["unpaid_voteshare_change_rate"].as<double>();
-      double producer_performance = 0.5;
-      double unpaid_voteshare = producer_performance * unpaid_voteshare_change_rate * double((claim_time - unpaid_voteshare_last_updated) / 1E6);
-      uint64_t reward = voters_bucket_pre_reward * (unpaid_voteshare / (initial_tot_unpaid_voteshare + initial_total_voteshare_change_rate * double((claim_time - total_unpaid_voteshare_last_updated) / 1E6)));
 
       BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_account_balance);
       BOOST_REQUIRE_EQUAL(last_voters_bucket, initial_voters_bucket); //no tokens were reserved yet
@@ -3331,7 +3336,7 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
    standbys.reserve(52);
 
    // It can generate up to 26 producers in one call (quantity > 26 will be ignored)
-   auto gen_producters = [&](const std::string& prefix, std::size_t quantity, prod_vec_t& result) {
+   auto gen_producers = [&](const std::string& prefix, std::size_t quantity, prod_vec_t& result) {
       for (char c = 'a'; c <= 'z' && c - 'a' < quantity; c++ ) {
          account_name prod{prefix + std::string(1, c)};
          BOOST_TEST_CHECKPOINT("Producer: " << prod.to_string());
@@ -3345,13 +3350,13 @@ BOOST_FIXTURE_TEST_CASE(producer_standby_pay_reward, eosio_system_tester, * boos
    };
 
    // Create producers/standbys
-   gen_producters("defproduce1", 21, producers);
+   gen_producers("defproduce1", 21, producers);
    produce_block();
 
-   gen_producters("defstandby2", 26, standbys);
+   gen_producers("defstandby2", 26, standbys);
    produce_block();
 
-   gen_producters("defstandby3", 26, standbys);
+   gen_producers("defstandby3", 26, standbys);
    produce_block();
 
    produce_block(fc::hours(24));

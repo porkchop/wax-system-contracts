@@ -201,7 +201,7 @@ namespace eosiosystem {
 
          if (standbys.size() > standby_index) {
             // Add the selected standby as an elected top producer.
-            top_producers[previous_block_hash_int % 21] = standbys[standby_index];
+            top_producers[previous_block_hash_int % top_producers.size()] = standbys[standby_index];
 
             /// @todo The following print statement isn't working. Check it.
             //eosio::print_f("Selected standby producer: %\n",
@@ -245,7 +245,7 @@ namespace eosiosystem {
    double stake2vote( int64_t staked ) {
       /// TODO subtract 2080 brings the large numbers closer to this decade
       double weight = int64_t( (current_time_point().sec_since_epoch() - (block_timestamp::block_timestamp_epoch / 1000)) / (seconds_per_day * 7) )  / double( 13 );
-      return double(staked) * std::pow( 2, weight );
+      return double(staked) * std::pow( 2., weight );
    }
 
    void system_contract::voteproducer( const name& voter_name, const name& proxy, const std::vector<name>& producers ) {
@@ -406,22 +406,18 @@ namespace eosiosystem {
       check(_gstate.total_unpaid_voteshare > 0, "no rewards available.");
 
       double producers_performance = calculate_producers_performance(voter);
-      debug::print("producers_performance %\n", producers_performance);
-      // debug::print("0.75/0.99 %\n", 0.75/.99);
-      // debug::print("voter.unpaid_voteshare %\n", voter.unpaid_voteshare);
       double unpaid_voteshare = voter.unpaid_voteshare + producers_performance * voter.unpaid_voteshare_change_rate * double((ct - voter.unpaid_voteshare_last_updated).count() / 1E6);
-      // debug::print("unpaid_voteshare %\n", unpaid_voteshare);
 
       int64_t reward = _gstate.voters_bucket * (unpaid_voteshare / _gstate.total_unpaid_voteshare);
       check(reward > 0, "no rewards available.");
-      // debug::print(" _gstate.voters_bucket %\n",  _gstate.voters_bucket);
-      // debug::print(" reward %\n",  reward);
+      debug::print("reward: %\n", reward);
 
       if (reward > _gstate.voters_bucket) {
          reward = _gstate.voters_bucket;
       }
 
       _gstate.voters_bucket -= reward;
+
       _gstate.total_unpaid_voteshare -= unpaid_voteshare;
       _voters.modify(voter, same_payer, [&]( auto& v ) {
          v.unpaid_voteshare = 0;
@@ -439,17 +435,37 @@ namespace eosiosystem {
          ? _voters.get( voter.proxy.value, "proxy not found" ) //data corruption
          : voter;
 
+       auto idx = _producers.get_index<"prototalvote"_n>();
+       std::map<name, bool> producers;
+       std::map<name, bool> standbys;
+       
+       uint64_t i = 0;
+
+       for (auto it = idx.cbegin(); it != idx.cend() && i < 57; ++it, ++i) {
+          if(i < 21) {
+            producers.emplace(it->owner, true);
+          } else {
+            standbys.emplace(it->owner, true);
+          }
+       }
+       
        for( const auto& producer : voter_or_proxy.producers ) {
          auto rewards = _rewards.get( producer.value, "producer not found" );
-         double perf = std::max(std::min(1.0, rewards.get_performance(_gstate2.last_block_num)), 0.5); // clamp everyones' perf to >= 0.5 and <= 1
+         reward_type type = reward_type::none;
+         if(producers.find(producer) != producers.end()) {
+           type = reward_type::producer;
+         } else if(standbys.find(producer) != standbys.end()) {
+           type = reward_type::standby;
+         }
+         double perf = rewards.get_performance(type, _gstate2.last_block_num);
          if(perf == -1.) {
-           perf = _greward.average_producers_performance();
+           perf = _greward.average_producer_performances();
          }
          producer_performances.push_back(perf);
        }
 
        while(producer_performances.size() < num_performance_producers) {
-         producer_performances.push_back(_greward.average_producers_performance());
+         producer_performances.push_back(_greward.average_producer_performances());
        }
 
        std::sort(producer_performances.begin(), producer_performances.end(), [&](double a, double b) {
@@ -459,14 +475,20 @@ namespace eosiosystem {
          producer_performances.erase(producer_performances.begin() + num_performance_producers, producer_performances.end());
        }
        
+       std::string prods;
+       for(auto prod: voter_or_proxy.producers) {
+         prods += prod.to_string() + " ";
+       }
+       debug::print("prods: %\n", prods);
+       
        std::string perfs;
        for(auto perf: producer_performances) {
          perfs += std::to_string(perf) + " ";
        }
-       debug::print("perfs %\n", perfs);
+       debug::print("Individual performances: %\n", perfs);
 
        double performance = std::accumulate(producer_performances.begin(), producer_performances.end(), 0.) / num_performance_producers;
-       _greward.update_performance(performance);
+       _greward.update_producer_performances(performance);
        return performance;
      }
 

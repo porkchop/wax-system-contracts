@@ -1013,9 +1013,31 @@ public:
       return push_action(config::system_account_name, N(activaterewd), mvo());
    }
 
-   action_result setrewards( const account_name& account, uint32_t block_accuracy_sample_size ) {
+   action_result setrewards( account_name account, uint32_t blocks_performance_window ) {
       return push_action(account, N(setrewards), mvo()
-                          ("block_accuracy_sample_size",     block_accuracy_sample_size));
+                          ("blocks_performance_window",     blocks_performance_window));
+   }
+   
+   void produce_blocks_up_to_producer(account_name name) {
+      while(true) {
+         if(control->head_block_producer() != name && control->pending_block_producer() == name) {
+           break;
+         }
+         produce_blocks(1);
+      }
+   }
+
+   void produce_blocks_skip_producer(uint32_t n, account_name name) {
+      uint32_t i = 0;
+      while(i < n) {
+         if(control->pending_block_producer() == name) {
+           produce_block(fc::milliseconds(500 * 13));
+           i += 13;
+         } else {
+           produce_blocks(1);
+           i++;
+         }
+      }
    }
 
    abi_serializer abi_ser;

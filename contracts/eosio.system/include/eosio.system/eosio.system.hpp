@@ -82,7 +82,7 @@ namespace eosiosystem {
    static constexpr double   producer_perc_reward  = 0.60;
    static constexpr double   standby_perc_reward   = 1 - producer_perc_reward;
    static constexpr uint32_t num_performance_producers = 16;
-   static constexpr uint32_t performances_sum_sample_size = 1000;
+   static constexpr uint32_t producer_performances_window = 1000;
 
    static constexpr uint64_t useconds_in_gbm_period = 1096 * useconds_per_day;   // from July 1st 2019 to July 1st 2022
    static const time_point gbm_initial_time(eosio::seconds(1561939200));     // July 1st 2019 00:00:00
@@ -249,15 +249,15 @@ namespace eosiosystem {
 
       uint8_t current_hour = 0;
 
-      double performances_sum = performances_sum_sample_size * 0.5;
-      uint32_t block_accuracy_sample_size = 3 * 24 * 60 * 60 * 2; // default 3 days worth of blocks for sampling block
+      uint32_t blocks_performance_window = 3 * 24 * 60 * 60 * 2; // default 3 days worth of blocks for sampling block
+      double rolling_producer_performances = producer_performances_window * 0.5;
 
-      void update_performance(double new_performance) {
-        performances_sum += new_performance - performances_sum / performances_sum_sample_size;
+      void update_producer_performances(double new_performance) {
+        rolling_producer_performances += new_performance - rolling_producer_performances / producer_performances_window;
       }
 
-      const double average_producers_performance() const {
-        return performances_sum / performances_sum_sample_size;
+      const double average_producer_performances() const {
+        return rolling_producer_performances / producer_performances_window;
       }
 
       eosio_global_reward() {
@@ -302,7 +302,7 @@ namespace eosiosystem {
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
-      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(current_hour)(performances_sum)(block_accuracy_sample_size))
+      EOSLIB_SERIALIZE( eosio_global_reward, (activated)(counters)(proposed_top_producers)(current_producers)(current_hour)(rolling_producer_performances)(blocks_performance_window))
    };
 
    /**
@@ -522,6 +522,35 @@ namespace eosiosystem {
     typedef eosio::singleton< "wpsglobal"_n, wpsenv > wps_env_singleton;
 
    /**
+    * Simple sigmoid function for smoothing rolling block performance into (0, 1)
+    * 
+    * x is rolling block performance
+    * 
+    * speed moderates how quickly we transition through the S part of the sigmoid.
+    *   Examples:
+    *   sigmoid(0.9 * expected_blocks_produced, 5, expected_blocks_produced / 2.) = 0.9
+    *   sigmoid(0.8 * expected_blocks_produced, 20 / 3, expected_blocks_produced / 2.) = 0.9
+    * The speed value can be calculated with the following
+    *   speed = (2 * r - 1) / ((2 - 2 * r) * (2 * v - 1))
+    *   which will satisfy
+    *   v = sigmoid(r * expected_blocks_produced, speed, expected_blocks_produced / 2.)
+    *   where r, v are in (0, 1)
+    * Reducing r relative to v will cause the resulting sigmoid values to snap more quickly toward either
+    *   0 or 1 as we transition left or right through the vicinity of the x_translation point.
+    *
+    * x_translation is the centring point for the S curve.
+    *   By setting x_translation = expected_blocks_produced / 2. you centre the S part around the
+    *   midpoint of how many blocks you expect that producer to have produced in the interval, which
+    *   probably makes the most sense. Ie if a producer only averages half its expected block production,
+    *   it will receive a performance value (aka sigmoid value) of exactly 0.5.
+    */
+   inline double sigmoid(double x, double speed, double x_translation) {
+      auto s = speed / x_translation;
+      auto X = s * (x - x_translation);
+      return 0.5 * (1 + X / (1 + std::abs(X)));
+   }
+
+   /**
     * Producer reward information  
     */
    struct [[eosio::table, eosio::contract("eosio.system")]] reward_info {
@@ -530,13 +559,13 @@ namespace eosiosystem {
       struct reward_info_counter_type {
          uint64_t unpaid_blocks = 0;  // # of blocks produced
 
-         double performance_sum = 0.0;
-         block_timestamp performance_last_block;
-         uint32_t performance_sample_size = 1; // to avoid div by 0, will get set on first pass through track_block;
+         double rolling_blocks = 0.0;
+         uint32_t blocks_performance_window = 1; // to avoid div by 0, will get set on first pass through track_block;
+         block_timestamp last_block;
 
-         double calc_performance_sum(block_timestamp block_time) const {
-           auto blocks_elapsed = block_time.slot - performance_last_block.slot;
-           return performance_sum * std::pow(1. - 1. / (double)performance_sample_size, blocks_elapsed);
+         double roll_blocks(block_timestamp block_time) const {
+           auto blocks_elapsed = block_time.slot - last_block.slot;
+           return rolling_blocks * std::pow(1. - 1. / (double)blocks_performance_window, blocks_elapsed);
          }
       };
 
@@ -589,45 +618,44 @@ namespace eosiosystem {
          return it->second;
       }
 
-      double get_performance(block_timestamp block_time) {
-        const auto &counter = get_current_counter();
-        switch(get_current_type()) {
+      double get_performance(reward_type as_type, block_timestamp block_time) {
+        const auto &counter = get_counters(as_type);
+        double rolling_blocks = counter.roll_blocks(block_time);
+        switch(as_type) {
           case reward_type::standby: {
-            double perf = counter.calc_performance_sum(block_time) / (0.97 * (0.01) * counter.performance_sample_size);
-            // debug::print("counter.performance_sum %, counter.performance_sample_size %, perf %\n", counter.performance_sum, counter.performance_sample_size, perf);
-            return perf;
+            double expected_blocks_produced = counter.blocks_performance_window * .01 * (1. / 36.);
+            // TODO: consider using 20 / 3 for the speed parameter below. This will make
+            // standbys more consistently scored but potentially reward them 90% of their
+            // vote pool for just 80% block production
+            debug::print("perf standby % rbs % rolled % sig %\n", owner.to_string(), counter.rolling_blocks, rolling_blocks, sigmoid(rolling_blocks, 5, expected_blocks_produced / 2.));
+            return sigmoid(rolling_blocks, 5, expected_blocks_produced / 2.);
           }
           case reward_type::producer: {
-            double perf = counter.calc_performance_sum(block_time) / (0.99 * (1./21.) * counter.performance_sample_size);
-            // debug::print("counter.performance_sum %, counter.performance_sample_size %, perf %\n", counter.performance_sum, counter.performance_sample_size, perf);
-            return perf;
+            double expected_blocks_produced = counter.blocks_performance_window * 0.99 * (1. / 21.);
+            return sigmoid(rolling_blocks, 5, expected_blocks_produced / 2.);
           }
           default:
-            return 0;
+            debug::print("perf none %\n", owner.to_string());
+            return -1.;
         }
       }
       
-      void track_block(block_timestamp block_time, uint32_t block_accuracy_sample_size) {
+      void track_block(block_timestamp block_time, uint32_t blocks_performance_window) {
+        if(get_current_type() == reward_type::standby) {
+          debug::print("track standby %\n", owner.to_string());
+        }
         auto &counter = get_current_counter();
-        if(block_accuracy_sample_size != counter.performance_sample_size) {
-          if(owner.to_string() == "defproducera")
-            debug::print("block_accuracy_sample_size % %\n", block_accuracy_sample_size, block_time.slot);
+        if(blocks_performance_window != counter.blocks_performance_window) {
           // If the global sample size window is changed, scale accordingly
-          counter.performance_sample_size = block_accuracy_sample_size;
-          counter.performance_sum = 0;
-          // double current_performance = get_performance(block_time);
-          // if(current_performance != 0) {
-          //   counter.performance_sum *= 1 / current_performance; // set everyone to full performance for easy testing
-          // }
-          // debug::print("counter.performance_sample_size % counter.performance_sum % \n", counter.performance_sample_size, counter.performance_sum);
+          counter.blocks_performance_window = blocks_performance_window;
+          counter.rolling_blocks = 0;
+          // debug::print("counter.blocks_performance_window % counter.rolling_blocks % \n", counter.blocks_performance_window, counter.rolling_blocks);
         }
 
-        counter.performance_last_block = block_time;
-        // debug::print("blocks_elapsed % counter.performance_sample_size % counter.performance_last_block % counter.performance_sum %\n", blocks_elapsed, counter.performance_sample_size, counter.performance_last_block.slot, counter.performance_sum);
-        counter.performance_sum = 1. + counter.calc_performance_sum(block_time);
+        // debug::print("blocks_elapsed % counter.blocks_performance_window % counter.last_block % counter.rolling_blocks %\n", blocks_elapsed, counter.blocks_performance_window, counter.last_block.slot, counter.rolling_blocks);
+        counter.rolling_blocks = 1. + counter.roll_blocks(block_time);
+        counter.last_block = block_time;
         counter.unpaid_blocks++;
-        if(owner.to_string() == "defproducera")
-          debug::print("counter.performance_sum % % \n", counter.performance_sum, block_time.slot);
       }
 
       // explicit serialization macro is not necessary, used here only to improve compilation time
@@ -929,7 +957,7 @@ namespace eosiosystem {
           *
           */
          [[eosio::action]]
-         void setrewards(uint32_t block_accuracy_sample_size);
+         void setrewards(uint32_t blocks_performance_window);
 
          // functions defined in delegate_bandwidth.cpp
 
