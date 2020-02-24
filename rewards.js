@@ -6,9 +6,18 @@ let current_producers = [];
 const performances_sum_sample_size = 1000;
 const num_performance_producers = 16;
 let performances_sum = performances_sum_sample_size * 0.5;
+let standy_production_ratio = 0.01;
+let standby_speed = 5;
+let producer_speed = 5;
+const full_round = 12 * 21;
+
+random_selection = true;
+let next_standby_index = 0;
+let next_standby_placement = 0;
 
 let standby_count = 0;
 let producer_count = 0;
+let last_producer_schedule_update = 0;
 
 const LIB_BLOCKS = 336;
 let lib_count = 0;
@@ -33,9 +42,11 @@ class Producer {
   get_performance(block_time) {
     let rolling_blocks = this.roll_blocks(block_time);
     if(this.is_standby) {
-      return sigmoid(rolling_blocks, 5, this.blocks_performance_window * .01 * (1 / 36) / 2);
+      // return sigmoid(rolling_blocks, standby_speed, 12 / standy_production_ratio * (1 / 36) / 2);
+      return sigmoid(rolling_blocks, standby_speed, this.blocks_performance_window * standy_production_ratio * (1 / 36) / 2);
     } else {
-      return sigmoid(rolling_blocks, 5, this.blocks_performance_window * 0.99 * (1 / 21) / 2);
+      // return sigmoid(rolling_blocks, producer_speed, 12 / 0.99 * (1 / 21) / 2);
+      return sigmoid(rolling_blocks, producer_speed, this.blocks_performance_window * 0.99 * (1 / 21) / 2);
     }
   }
 
@@ -59,7 +70,7 @@ class Producer {
   }
   
   print_performance() {
-    console.log(`${this.name} perf: ${this.get_performance(block_height).toFixed(8)}\trolling_blocks: ${this.rolling_blocks}\troll_blocks: ${this.roll_blocks(block_height).toFixed(8)}\tunpaid: ${this.unpaid_blocks} ${this.unpaid_blocks%12}\tblock: ${block_height}`);
+    console.log(`${this.name} perf: ${this.get_performance(block_height).toFixed(8)}\trolling_blocks: ${this.rolling_blocks}\troll_blocks: ${this.roll_blocks(block_height).toFixed(8)}\tblock delta: ${block_height - this.last_block}\tunpaid: ${this.unpaid_blocks} ${this.unpaid_blocks%12}\tblock: ${block_height}`);
   }
 }
 
@@ -88,21 +99,25 @@ for(let i = 1; i <= 36; i++) {
 
 current_producers = producers.slice();
 
-// let next_standby_index = 0;
-
 function check_schedule(block_height) {
   block_count++;
   if(++lib_count >= LIB_BLOCKS && block_height % 12 == 11) {
     lib_count = 0;
     
     current_producers = producers.slice();
-    if(block_count - last_standby_block_count >= 1188) {
-      let i = Math.floor(Math.random() * standbys.length);
+    if(standby_count / block_count < standy_production_ratio) {
+      let i;
+      let j;
+      if(random_selection) {
+        i = Math.floor(Math.random() * standbys.length);
+        j = Math.floor(Math.random() * producers.length);
+      } else {
+        i = next_standby_index;
+        next_standby_index = (next_standby_index + 1) % standbys.length;
+        j = next_standby_placement;
+        next_standby_placement = (next_standby_placement + 1) % producers.length;
+      }
 
-      // let i = next_standby_index;
-      // next_standby_index = (next_standby_index + 1) % standbys.length;
-
-      let j = Math.floor(Math.random() * producers.length);
       current_producers[j] = standbys[i];
     }
   }
@@ -190,12 +205,27 @@ function print_performance() {
 // }
 // values.forEach(show_sigmoid);
 
-const full_round = 12 * 21;
-blocks_performance_window = 200 * full_round;
-produce_blocks(300 * full_round);
+// standy_production_ratio = 0.04;
+// blocks_performance_window = 100 * full_round;
+// produce_blocks(500 * full_round);
+// print_performance();
+
+// standy_production_ratio = 0.04;
+// blocks_performance_window = 600 * full_round;
+// produce_blocks(3600 * full_round);
+// print_performance();
+
+random_selection = false;
+standy_production_ratio = 0.01;
+// blocks_performance_window = 100 * full_round;
+blocks_performance_window = 43200;
+// standby_speed = 5;
+produce_blocks(3600 * 2.33 * full_round);
 print_performance();
 
-
+console.log('standby expected rolling_blocks', blocks_performance_window * standy_production_ratio * (1 / 36) / 2);
+console.log('producer expected rolling_blocks', blocks_performance_window * 0.99 * (1 / 21) / 2);
+console.log(`random_selection ${random_selection}, standy_production_ratio ${standy_production_ratio}, blocks_performance_window ${blocks_performance_window}, standby_speed ${standby_speed}, producer_speed ${producer_speed}`)
 // blocks_performance_window = 21 * 12 * 100;
 // produce_blocks(blocks_performance_window);
 // print_performance();
@@ -214,9 +244,12 @@ print_performance();
 // produce_blocks(blocks_performance_window);
 // print_performance();
 
-console.log(`Activity max hours ${blocks_performance_window / 60 / 60 / 2}`);
-
-print_sigmoid_speed(0.9, 0.9);
-print_sigmoid_speed(0.8, 0.8);
-print_sigmoid_speed(0.9, 0.8);
-print_sigmoid_speed(0.9, 0.7);
+console.log(`blocks_performance_window hours ${blocks_performance_window / 60 / 60 / 2}`);
+let expected_blocks = blocks_performance_window * standy_production_ratio * (1 / 36);
+let rolling_blocks = expected_blocks * Math.pow(1. - 1. / blocks_performance_window, 36 * 12 / .01);
+let sig = sigmoid(rolling_blocks, standby_speed, expected_blocks / 2)
+console.log(`expected_blocks ${expected_blocks}, rolling_blocks ${rolling_blocks}, sigmoid = ${sig}`);
+// print_sigmoid_speed(0.9, 0.9);
+// print_sigmoid_speed(0.8, 0.8);
+// print_sigmoid_speed(0.9, 0.8);
+// print_sigmoid_speed(0.9, 0.7);
